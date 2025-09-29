@@ -1,6 +1,7 @@
 import requests
 from typing import Optional
 import logging
+import json
 
 log = logging.getLogger("yt")
 
@@ -87,5 +88,24 @@ class YouTrackClient:
         r = requests.get(url, headers=self._headers(), timeout=10)
         r.raise_for_status()
         return r.json()["id"]
+
+    def is_user_in_project_team(self, internal_id: str, *, login: str = None) -> bool:
+        hub_base = f"{self.base_url}/hub/api/rest"
+        params = {"fields": "id,login,email", "$top": 1}
+        if login:
+            params["query"] = f"login: {login}"
+
+        try:
+            logging.debug(f"Проверка пользователя {login} в проекте {internal_id}, запрос: {params}")
+
+            r = requests.get(f"{hub_base}/projects/{internal_id}/team/users", headers=self._headers(), params=params,
+                             timeout=15)
+            r.raise_for_status()
+            users = r.json().get("users")
+            return len(users) > 0
+        except (requests.RequestException, json.JSONDecodeError) as e:
+            logging.error(
+                f"Ошибка проверки пользователя {login} в проекте {internal_id}: {str(e)}, ответ: {r.text if 'r' in locals() else 'нет ответа'}")
+            return False
 
 

@@ -72,6 +72,20 @@ class MattermostClient:
         }
         return self._post("/api/v4/posts", json=body)
 
+
+    def post_ephemeral(self, user_id: str, channel_id: str, message: str):
+        url = f"{self.base_url}/api/v4/posts/ephemeral"
+        payload = {
+            "user_id": user_id,
+            "post": {
+                "channel_id": channel_id,
+                "message": message,
+            }
+        }
+        r = self.session.post(url, json=payload, timeout=15)
+        r.raise_for_status()
+        return r.json()
+
     def _post(self, path: str, **kwargs) -> Dict[str, Any]:
         r = self.session.post(self.base_url + path, **kwargs, timeout=15)
         r.raise_for_status()
