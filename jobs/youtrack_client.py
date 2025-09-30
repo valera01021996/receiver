@@ -2,19 +2,17 @@ import requests
 from typing import Optional
 import logging
 import json
+from core import settings
 
 log = logging.getLogger("yt")
 
 
 class YouTrackClient:
 
-    def __init__(self,
-                 base_url: Optional[str] = None,
-                 token: Optional[str] = None,
-                 project_key: Optional[str] = None):
-        self.base_url = base_url.strip("/")
-        self.token = token
-        self.project = project_key
+    def __init__(self):
+        self.base_url = settings.YOUTRACK_URL
+        self.token = settings.YOUTRACK_TOKEN
+        self.project = settings.YOUTRACK_PROJECT
         if not self.base_url or not self.token or not self.project:
             raise ValueError("YT_BASE_URL, YT_TOKEN, YT_PROJECT должны быть заданы")
 
@@ -107,5 +105,26 @@ class YouTrackClient:
             logging.error(
                 f"Ошибка проверки пользователя {login} в проекте {internal_id}: {str(e)}, ответ: {r.text if 'r' in locals() else 'нет ответа'}")
             return False
+
+
+    def get_project_id_by_issue_id(self, issue_id: str) -> Optional[str]:
+        params = {"fields": "idReadable,project(id,shortName,ringId)"}
+        url = f"{self.base_url}/api/issues/{issue_id}"
+        try:
+            data = requests.get(url, headers=self._headers(), params=params)
+            data.raise_for_status()
+            proj = data.json().get("project") or {}
+            ring_id = proj.get('ringId')
+
+            if not ring_id:
+                raise RuntimeError(f"Для {issue_id} не удалось получить ringID проекта")
+
+            logging.debug(f"Для {issue_id} получен ringId: {ring_id}")
+            return ring_id
+
+        except (RuntimeError, requests.RequestException, json.JSONDecodeError) as e:
+            logging.error(
+                f"Ошибка для {issue_id}: {str(e)}, ответ: {data.text if 'data' in locals() else 'нет ответа'}")
+            return None
 
 

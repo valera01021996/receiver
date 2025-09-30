@@ -31,6 +31,7 @@ YOUTRACK_TOKEN = os.getenv('YOUTRACK_TOKEN', '')
 YOUTRACK_PROJECT = os.getenv('YOUTRACK_PROJECT', '')
 ALLOWED_NUMBER = os.getenv('ALLOWED_NUMBER')
 ACK_URL = os.getenv('ACK_URL')
+ALLOWED_ACK_USER_IDS = os.getenv('ALLOWED_ACK_USER_IDS')
 
 SMS_PROCESS_DELAY = os.getenv("SMS_PROCESS_DELAY")
 
@@ -124,10 +125,15 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 CELERY_BEAT_SCHEDULE = {
-    "run-task-a-every-minute": {
-        "task": "jobs.dispatch_incoming_sms",
-        "schedule": timedelta(minutes=1),
+    "run-get-new-events-every-2-min": {
+        "task": "jobs.get_new_events",
+        "schedule": timedelta(minutes=2),
     },
+    "runsent_new_events_to_mattermost-2-min": {
+        "task": "jobs.sent_new_events_to_mattermost",
+        "schedule": timedelta(minutes=2),
+    }
+
 }
 
 # Internationalization

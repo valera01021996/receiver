@@ -1,99 +1,128 @@
 import logging
-from alerts.models import Fingerprint
+from csv import excel_tab
+from ipaddress import summarize_address_range
+
+from alerts.models import Events
 from celery import shared_task
 from django.conf import settings
 from .sms_rec import SmsReceiver
 from .mattermost_client import MattermostClient
 from .youtrack_client import YouTrackClient
 from .utils import parse_message
+from .choises import Status
 
 log = logging.getLogger(__name__)
 
 SMS_PROCESS_DELAY = getattr(settings, "SMS_PROCESS_DELAY", 3)
 
 
-@shared_task(
-    bind=True,
-    name="jobs.process_single_sms",
-    autoretry_for=(Exception,),
-    retry_backoff=True,
-    retry_jitter=True,
-    max_retries=5,
-    rate_limit="12/m",
-    acks_late=True,
-)
-def process_single_sms(self, sms_id: int | str) -> str:
-    allowed_number = settings.ALLOWED_NUMBER
+@shared_task(bind=True, name="jobs.sent_new_events_to_mattermost")
+def sent_new_events_to_mattermost(self) -> str:
     ack_url = settings.ACK_URL
-    mm_url = settings.MATTERMOST_URL
-    mm_token = settings.MATTERMOST_TOKEN
     channel_id = settings.CHANNEL_ID
-    yt_url = settings.YOUTRACK_URL
-    yt_token = settings.YOUTRACK_TOKEN
     yt_project = settings.YOUTRACK_PROJECT
 
-    sms_client = SmsReceiver()
-    sms = sms_client.read_sms(sms_id)
-    if not sms:
-        return f"SMS {sms_id}: not found/empty"
+    mm = MattermostClient()
+    yt = YouTrackClient()
 
-    log.info("SMS id=%s from=%s text=%s", sms_id, sms.get('number'), sms.get('text'))
+    pending = (Events.objects.filter(done=False).values_list("id", "sms_text"))
+    processed = 0
+    for ev_id, sms_text in pending:
+        try:
+            sms_text = (sms_text or "").strip()
+            if not sms_text:
+                log.warning("Event id = %s: пустой sms_text - пропускаю", ev_id)
+                continue
 
-    # фильтр номера
-    if allowed_number and sms.get('number') != allowed_number:
-        log.info("Untrusted number %s, deleting sms_id=%s", sms.get('number'), sms_id)
-        sms_client.delete_sms(sms_id)
-        return f"SMS {sms_id}: deleted (untrusted)"
-
-    # парсинг
-    alertname, instance, summary, startsat, severity = parse_message(sms['text'])
-
-    # YouTrack
-    yt = YouTrackClient(yt_url, yt_token, yt_project)
-    yt_result = yt.create_issue_simple(
-        f"{alertname}\nHost:{instance}",
-        f"{summary}\nSeverity:{severity}\nTime:{startsat}",
-        yt_project
-    )
-    issue_id = yt_result.get("idReadable", {})
+            parsed = parse_message(sms_text)
+            if not parsed or len(parsed) != 5:
+                log.warning("Event id = %s: parse_message вернул %r - пропускаю. Текст: %r", ev_id, parsed, sms_text)
+                continue
+            alertname, instance, summary, startsat, severity = parsed
 
 
-    # Mattermost
-    mm = MattermostClient(mm_url, mm_token)
-    mm_result = mm.post_alert(
-        channel_id,
-        status="firing",
-        alertname=alertname,
-        instance=instance,
-        summary=summary,
-        starts_at=startsat,
-        severity=severity,
-        ack_url=ack_url
-    )
 
-    post_id = mm_result.get("id", {})
+        # YouTrack
 
-    obj = Fingerprint.objects.create(
-        post_id = post_id,
-        issue_id = issue_id,
-        status = Fingerprint.Status.NEW,
-    )
-
-    obj.save()
-
-    sms_client.delete_sms(sms_id)
-    return f"SMS {sms_id}: processed"
+            yt_result = yt.create_issue_simple(
+                f"{alertname}\nHost:{instance}",
+                f"{summary}\nSeverity:{severity}\nTime:{startsat}",
+                yt_project
+            )
+            issue_id = yt_result.get("idReadable", {})
+            if not issue_id:
+                log.warning("Event id=%s: Youtrack не веррнул idReadable - пропускаю", ev_id)
+                continue
 
 
-@shared_task(bind=True, name="jobs.dispatch_incoming_sms")
-def dispatch_incoming_sms(self):
+        # Mattermost
+
+            mm_result = mm.post_alert(
+                channel_id,
+                status="firing",
+                alertname=alertname,
+                instance=instance,
+                summary=summary,
+                starts_at=startsat,
+                severity=severity,
+                ack_url=ack_url
+            )
+
+            post_id = mm_result.get("id", {})
+            if not post_id:
+                log.warning("Event id=%s: Mattermost не вернул post_id - пропускаю", ev_id)
+                continue
+
+            Events.objects.filter(id=ev_id).update(
+                post_id=post_id,
+                issue_id=issue_id,
+                done=True,
+            )
+            processed += 1
+            log.info("Event id = %s обработан: post_id=%s, issue_id=%s", ev_id, post_id, issue_id)
+
+        except Exception:
+            log.exception("Event id=%s: ошибка при отправке", ev_id)
+    return {"processed": processed}
+
+@shared_task(bind=True, name="jobs.get_new_events")
+def get_new_events(self):
     sms_client = SmsReceiver()
     sms_ids = sms_client.list_sms(only_received=True) or []
 
-    for i, sms_id in enumerate(sms_ids):
-        delay = i * SMS_PROCESS_DELAY
+    created = 0
+    log.info("Start polling SMS (task_id=%s). Found %d sms", self.request.id, len(sms_ids))
+    for sms_id in sms_ids:
+        try:
+            data = sms_client.read_sms(sms_id)
+            if settings.ALLOWED_NUMBER and data.get('number') != settings.ALLOWED_NUMBER:
+                log.info("Untrusted number %s, deleting sms_id=%s", data.get('number'), sms_id)
+                sms_client.delete_sms(sms_id)
+                continue
+            text = data.get('text', {})
+            provisional_post_id = f"sms:{sms_id}"
 
-        process_single_sms.apply_async((sms_id,), countdown=delay)
+            if not text:
+                log.warning("SMS %s has empty text, skip", sms_id)
+                continue
 
-    log.info("Queued %d sms for processing (delay step=%ss)", len(sms_ids), SMS_PROCESS_DELAY)
-    return {"queued": len(sms_ids), "delay_step_sec": SMS_PROCESS_DELAY}
+            obj, is_created = Events.objects.get_or_create(
+                post_id=provisional_post_id,
+                defaults={
+                    "issue_id": "",
+                    "status": Status.NEW,
+                    "acked_by": None,
+                    "done": False,
+                    "sms_text": text,
+                }
+            )
+            obj.save()
+            sms_client.delete_sms(sms_id)
+            if is_created:
+                created += 1
+                log.info("Created Event for SMS %s (post_id=%s)", sms_id, provisional_post_id)
+        except Exception:
+            log.exception("Failed to process SMS %s", sms_id)
+
+    log.info("Done polling. Created: %d / Total seen: %d", created, len(sms_ids))
+    return {"found": len(sms_ids), "created": created}

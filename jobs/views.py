@@ -5,7 +5,8 @@ from .youtrack_client import YouTrackClient
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
-from alerts.models import Fingerprint
+from alerts.models import Events
+from jobs.choises import Status
 
 log = logging.getLogger(__name__)
 
@@ -15,8 +16,8 @@ def mm_ack(request):
     if request.method != 'POST':
         return HttpResponseBadRequest('POST only')
 
-    mm_client = MattermostClient(settings.MATTERMOST_URL, settings.MATTERMOST_TOKEN)
-    yt_client = YouTrackClient(settings.YOUTRACK_URL, settings.YOUTRACK_TOKEN, settings.YOUTRACK_PROJECT)
+    mm_client = MattermostClient()
+    yt_client = YouTrackClient()
 
     try:
         payload = json.loads(request.body.decode('utf-8') or '{}')
@@ -36,15 +37,23 @@ def mm_ack(request):
     # Вытаскиваем пользователя с youtrack по email который взяли в mattermost
     yt_user = yt_client.get_user_by_email(mm_user_email)
 
-    fp = Fingerprint.objects.filter(post_id=post_id).first()
+    fp = Events.objects.filter(post_id=post_id).first()
     if not fp or not fp.issue_id:
         return HttpResponseBadRequest("issue_id not found for this post_id")
 
     issue_id = fp.issue_id
     issue_url = f"{settings.YOUTRACK_URL}/issue/{issue_id}"
     internal_id = yt_client.get_issue_internal_id(issue_id)
+    project_id = yt_client.get_project_id_by_issue_id(issue_id)
 
-    if yt_client.is_user_in_project_team(internal_id, login=yt_user):
+    if user_id not in settings.ALLOWED_ACK_USER_IDS:
+        mm_client.post_ephemeral(user_id, channel_id, f"У вас нет прав!")
+        return JsonResponse({
+            'ok': False,
+            'user': user_name,
+        }, status=403)
+
+    if yt_client.is_user_in_project_team(project_id, login=yt_user):
         # Назначаем ответственного в youtrack
         try:
             yt_client.apply_command(internal_id, f"Assignee {yt_user}")
@@ -86,9 +95,9 @@ def mm_ack(request):
         })
 
         try:
-            fp = Fingerprint.objects.filter(post_id=post_id).first()
+            fp = Events.objects.filter(post_id=post_id).first()
             if fp:
-                fp.status = Fingerprint.Status.ACKED
+                fp.status = Status.ACKED
                 fp.acked_by = user_name
                 fp.save(update_fields=['status', 'acked_by'])
         except Exception as e:

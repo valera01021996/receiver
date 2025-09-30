@@ -1,13 +1,13 @@
 import requests
 from typing import Dict, Optional, Any
-
+from core import settings
 
 class MattermostClient:
-    def __init__(self, base_url: str, bot_token: str):
-        self.base_url = base_url.rstrip("/")
+    def __init__(self):
+        self.base_url = settings.MATTERMOST_URL
         self.session = requests.Session()
         self.session.headers.update({
-            "Authorization": f"Bearer {bot_token}",
+            "Authorization": f"Bearer {settings.MATTERMOST_TOKEN}",
             "Content-Type": "application/json",
         })
 
