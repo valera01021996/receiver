@@ -12,15 +12,11 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
-from datetime import timedelta
+
 
 TIME_ZONE = 'Asia/Tashkent'
 USE_TZ = True
 
-CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://127.0.0.1:6379/1')
-CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://127.0.0.1:6379/2')
-CELERY_TIMEZONE = TIME_ZONE
-CELERY_ENABLE_UTC = True
 
 MATTERMOST_URL = os.getenv('MATTERMOST_URL', '')
 MATTERMOST_TOKEN = os.getenv('MATTERMOST_TOKEN', '')
@@ -124,28 +120,24 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-CELERY_BEAT_SCHEDULE = {
-    "run-get-new-events-every-2-min": {
-        "task": "jobs.get_new_events",
-        "schedule": timedelta(minutes=2),
-    },
-    "runsent_new_events_to_mattermost-2-min": {
-        "task": "jobs.sent_new_events_to_mattermost",
-        "schedule": timedelta(minutes=2),
-    }
 
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/3",
+        "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
+        "KEY_PREFIX": "django_api",
+    }
 }
+
+
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
-USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/

@@ -3,5 +3,5 @@ from .models import Events
 
 @admin.register(Events)
 class FingerprintAdmin(admin.ModelAdmin):
-    list_display = ('id', 'post_id', 'issue_id', 'status', 'acked_by', 'sms_text', 'done')
+    list_display = ('id', 'post_id', 'issue_id', 'status', 'acked_by', 'sms_text')
     search_fields = ('post_id', 'issue_id', 'status', 'acked_by')

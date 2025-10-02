@@ -47,7 +47,7 @@ def mm_ack(request):
     project_id = yt_client.get_project_id_by_issue_id(issue_id)
 
     if user_id not in settings.ALLOWED_ACK_USER_IDS:
-        mm_client.post_ephemeral(user_id, channel_id, f"У вас нет прав!")
+        mm_client.post_ephemeral(user_id, channel_id, f"You do not have permission!")
         return JsonResponse({
             'ok': False,
             'user': user_name,
@@ -58,13 +58,13 @@ def mm_ack(request):
         try:
             yt_client.apply_command(internal_id, f"Assignee {yt_user}")
         except Exception as e:
-            logging.error(f"Ошибка назначения исполнителя для {issue_id}: {e}")
+            logging.error(f"Error assigning assignee for {issue_id}: {e}")
         # Меняем состояние тикета с "Новая" на "Открыта"
         try:
             yt_client.apply_command(internal_id, "State Open")
-            logging.debug(f"Состояние задачи {issue_id} изменено на Open")
+            logging.debug(f"Issue {issue_id} state changed to Open")
         except Exception as e:
-            logging.error(f"Ошибка изменения состояния задачи {issue_id}: {e}")
+            logging.error(f"Error changing issue {issue_id} state: {e}")
 
         post = mm_client.get_post(post_id)
         props = post.get('props') or {}
@@ -105,7 +105,7 @@ def mm_ack(request):
 
         return JsonResponse({'ok': True, 'post_id': post_id, 'ack_by': user_name})
     else:
-        mm_client.post_ephemeral(user_id, channel_id, f"{user_name}, у вас нет прав подтверждать алерты для проекта **{settings.YOUTRACK_PROJECT}**.")
+        mm_client.post_ephemeral(user_id, channel_id, f"{user_name}, You do not have permission to acknowledge alerts for the project **{settings.YOUTRACK_PROJECT}**.")
 
     return JsonResponse({
         'ok': False,
