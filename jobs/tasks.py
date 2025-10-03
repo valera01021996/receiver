@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 
 @shared_task(bind=True, name="jobs.sent_new_events_to_mattermost")
 def sent_new_events_to_mattermost(self) -> str:
-    with task_lock("lock:jobs.sent_new_events_to_mattermost", timeout=110) as acquired:
+    with task_lock("lock:jobs.sent_new_events_to_mattermost", timeout=300) as acquired:
         if not acquired:
             log.info("Skip: task already running")
             return {"processed": 0, "skipped": True}
@@ -83,7 +83,7 @@ def sent_new_events_to_mattermost(self) -> str:
 
 @shared_task(bind=True, name="jobs.get_new_events")
 def get_new_events(self):
-    with task_lock("lock:jobs.get_new_events", timeout=110) as acquired:
+    with task_lock("lock:jobs.get_new_events", timeout=300) as acquired:
         if not acquired:
             log.info("Skip get_new_events: already running")
             return {"found": 0, "created": 0, "skipped": True}
