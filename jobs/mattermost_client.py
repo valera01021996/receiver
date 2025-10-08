@@ -10,6 +10,7 @@ class MattermostClient:
             "Authorization": f"Bearer {settings.MATTERMOST_TOKEN}",
             "Content-Type": "application/json",
         })
+        self.mention_users = settings.MENTION_USERS
 
     def post_alert(self,
                    channel_id: str,
@@ -70,7 +71,18 @@ class MattermostClient:
                 "attachments": [attachment]
             },
         }
-        return self._post("/api/v4/posts", json=body)
+
+        parent_post = self._post("/api/v4/posts", json=body)
+
+        if parent_post and self.mention_users:
+            mention_text = " ".join(f"@{u}" for u in self.mention_users)
+            self._post("/api/v4/posts", json={
+                "channel_id": channel_id,
+                "root_id": parent_post.get("id"),
+                "message": f"{mention_text} 🔔 Пожалуйста, посмотрите алерт",
+            })
+
+        return parent_post
 
 
     def post_ephemeral(self, user_id: str, channel_id: str, message: str):

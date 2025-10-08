@@ -31,6 +31,8 @@ ALLOWED_ACK_USER_IDS = os.getenv('ALLOWED_ACK_USER_IDS')
 
 SMS_PROCESS_DELAY = os.getenv("SMS_PROCESS_DELAY")
 
+MENTION_USERS = os.getenv("MENTION_USERS")
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
