@@ -1,7 +1,7 @@
 import requests
 from typing import Dict, Optional, Any
 from core import settings
-
+import re
 class MattermostClient:
     def __init__(self):
         self.base_url = settings.MATTERMOST_URL
@@ -75,12 +75,14 @@ class MattermostClient:
         parent_post = self._post("/api/v4/posts", json=body)
 
         if parent_post and self.mention_users:
-            mention_text = " ".join(f"@{u}" for u in self.mention_users)
-            self._post("/api/v4/posts", json={
-                "channel_id": channel_id,
-                "root_id": parent_post.get("id"),
-                "message": f"{mention_text} 🔔 Пожалуйста, посмотрите алерт",
-            })
+            users = [u.lstrip('@') for u in re.split(r'[,\s]+', self.mention_users.strip()) if u]
+            if users:
+                mention_text = " ".join(f"@{u}" for u in users)
+                self._post("/api/v4/posts", json={
+                    "channel_id": channel_id,
+                    "root_id": parent_post.get("id"),
+                    "message": f"{mention_text} 🔔 Пожалуйста, посмотрите алерт",
+                })
 
         return parent_post
 
