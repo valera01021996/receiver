@@ -52,7 +52,8 @@ services:
       - redis
     networks: [appnet]
     # Тоже нужен доступ к ModemManager, если worker вызывает mmcli
-    volumes:
+    privileged: true             # самый простой способ разрешить доступ к /dev/*
+    devices:
       - /dev/ttyUSB0:/dev/ttyUSB0
       - /dev/ttyUSB1:/dev/ttyUSB1
       - /dev/serial/by-id:/dev/serial/by-id
