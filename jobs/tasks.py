@@ -8,10 +8,19 @@ from .youtrack_client import YouTrackClient
 from .utils import parse_message
 from .choises import Status
 from .locks import task_lock
+from datetime import datetime, timedelta, timezone
 
 log = logging.getLogger(__name__)
 
 # SMS_PROCESS_DELAY = getattr(settings, "SMS_PROCESS_DELAY", 3)
+
+
+def add5h_keep_utc(text_iso_z):
+    """+5 часов и оставить 'Z' (UTC) в конце. Возвращает строку."""
+    dt = datetime.fromisoformat(text_iso_z.replace('Z', '+00:00'))
+    out = (dt + timedelta(hours=5)).astimezone(timezone.utc)
+    return out.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+
 
 
 @shared_task(bind=True, name="jobs.sent_new_events_to_mattermost")
@@ -41,6 +50,8 @@ def sent_new_events_to_mattermost(self) -> str:
                     log.warning("Event id = %s: parse_message returned %r — skipping. Text: %r", ev_id, parsed, sms_text)
                     continue
                 alertname, instance, summary, startsat, severity = parsed
+
+                startsat = add5h_keep_utc(startsat)
 
                 yt_result = yt.create_issue_simple(
                     f"{alertname}\nHost:{instance}",
