@@ -5,7 +5,7 @@ from django.conf import settings
 from .sms_rec import AtSmsReceiver
 from .mattermost_client import MattermostClient
 from .youtrack_client import YouTrackClient
-from .utils import parse_message
+from .utils import parse_message, gsm7ext_normalize
 from .choises import Status
 from .locks import task_lock
 from datetime import datetime, timedelta, timezone
@@ -44,6 +44,8 @@ def sent_new_events_to_mattermost(self) -> str:
                 if not sms_text:
                     log.warning("Event id = %s: empty sms_text — skipping", ev_id)
                     continue
+
+                sms_text = gsm7ext_normalize(sms_text)
 
                 parsed = parse_message(sms_text)
                 if not parsed or len(parsed) != 5:
