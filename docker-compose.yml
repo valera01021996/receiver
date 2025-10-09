@@ -53,9 +53,9 @@ services:
     networks: [appnet]
     # Тоже нужен доступ к ModemManager, если worker вызывает mmcli
     volumes:
-      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
-#      - /var/run/dbus:/var/run/dbus:ro
-      - /run/ModemManager:/run/ModemManager:ro
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/ttyUSB1:/dev/ttyUSB1
+      - /dev/serial/by-id:/dev/serial/by-id
     security_opt:
       - apparmor=unconfined
     restart: always

@@ -18,6 +18,11 @@ fi
 
 # Celery worker
 if [ "$ROLE" = "worker" ]; then
+  if [ -n "$MODEM_PORT" ] && [ ! -e "$MODEM_PORT" ]; then
+    echo "WARNING: MODEM_PORT '$MODEM_PORT' not found. Available:"
+    ls -l /dev/ttyUSB* || true
+    ls -l /dev/serial/by-id/ || true
+  fi
   exec celery -A core worker -l INFO
 fi
 

@@ -2,7 +2,7 @@ import logging
 from alerts.models import Events
 from celery import shared_task
 from django.conf import settings
-from .sms_rec import SmsReceiver
+from .sms_rec import AtSmsReceiver
 from .mattermost_client import MattermostClient
 from .youtrack_client import YouTrackClient
 from .utils import parse_message
@@ -98,41 +98,40 @@ def get_new_events(self):
         if not acquired:
             log.info("Skip get_new_events: already running")
             return {"found": 0, "created": 0, "skipped": True}
-        sms_client = SmsReceiver()
-        sms_ids = sms_client.list_sms(only_received=True) or []
+        sms = AtSmsReceiver(port=settings.MODEM_PORT, storage=settings.MODEM_STORAGE)
+        try:
+            idxs = sms.list_unread()
+            created = 0
+            log.info("Start polling SMS (task_id=%s). Found %d unread", self.request.id, len(idxs))
 
-        created = 0
-        log.info("Start polling SMS (task_id=%s). Found %d sms", self.request.id, len(sms_ids))
-        for sms_id in sms_ids:
-            try:
-                data = sms_client.read_sms(sms_id)
-                if settings.ALLOWED_NUMBER and data.get('number') != settings.ALLOWED_NUMBER:
-                    log.info("Untrusted number %s, deleting sms_id=%s", data.get('number'), sms_id)
-                    sms_client.delete_sms(sms_id)
-                    continue
-                text = data.get('text', {})
-                provisional_post_id = f"sms:{sms_id}"
+            for idx in idxs:
+                try:
+                    data = sms.read_sms(idx)
+                    number = data.get("number")
+                    text = data.get("text", "").strip()
+                    if settings.ALLOWED_NUMBER and number != settings.ALLOWED_NUMBER:
+                        log.info("Untrusted number %s, deleting idx=%s", number, idx)
+                        sms.delete_sms(idx)
+                        continue
+                    if not text:
+                        log.warning("SMS idx=%s has empty text, skip", idx)
+                        sms.delete_sms(idx)
+                        continue
 
-                if not text:
-                    log.warning("SMS %s has empty text, skip", sms_id)
-                    continue
+                    provisional_post_id = f"sms:{idx}"
+                    obj, is_created = Events.objects.get_or_create(
+                        post_id=provisional_post_id,
+                        defaults={"issue_id": None, "status": Status.NEW, "acked_by": None, "sms_text": text},
+                    )
+                    obj.save()
+                    sms.delete_sms(idx)
+                    if is_created:
+                        created += 1
+                        log.info("Created Event for SMS idx=%s (post_id=%s)", idx, provisional_post_id)
+                except Exception:
+                    log.exception("Failed to process SMS idx=%s", idx)
 
-                obj, is_created = Events.objects.get_or_create(
-                    post_id=provisional_post_id,
-                    defaults={
-                        "issue_id": None,
-                        "status": Status.NEW,
-                        "acked_by": None,
-                        "sms_text": text,
-                    }
-                )
-                obj.save()
-                sms_client.delete_sms(sms_id)
-                if is_created:
-                    created += 1
-                    log.info("Created Event for SMS %s (post_id=%s)", sms_id, provisional_post_id)
-            except Exception:
-                log.exception("Failed to process SMS %s", sms_id)
-
-        log.info("Done polling. Created: %d / Total seen: %d", created, len(sms_ids))
-        return {"found": len(sms_ids), "created": created}
+            log.info("Done polling. Created: %d / Total seen: %d", created, len(idxs))
+            return {"found": len(idxs), "created": created}
+        finally:
+            sms.close()
