@@ -1,14 +1,33 @@
 import re
 import time
 import serial
+import glob, os
+from serial import Serial, SerialException
+
+CANDIDATES = [
+    "/dev/serial/by-id/*Technology*Mobile*",
+    "/dev/serial/by-id/*HUAWEI*Mobile*",
+    "/dev/ttyUSB0", "/dev/ttyUSB1", "/dev/ttyUSB2", "/dev/ttyUSB3",
+]
+
+def _pick_modem_port(explicit: str | None) -> str:
+    if explicit and os.path.exists(explicit):
+        return explicit
+    for pat in CANDIDATES:
+        for p in sorted(glob.glob(pat)):
+            if os.path.exists(p):
+                return p
+    raise FileNotFoundError(f"Modem port not found. Tried {explicit} and {CANDIDATES}")
+
+
 
 class AtSmsReceiver:
-    def __init__(self, port="/dev/ttyUSB0", baudrate=115200, timeout=2.0, storage="SM"):
-        self.port = port
+    def __init__(self, port=None, baudrate=115200, timeout=2.0, storage="SM"):
+        self.port = _pick_modem_port(port)
         self.baudrate = baudrate
         self.timeout = timeout
         self.storage = storage  # "SM" (SIM) или "ME" (память модема)
-        self.ser = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
+        self.ser = Serial(self.port, baudrate, timeout=timeout)
         self._at("AT")                    # ping
         self._at("ATE0")                  # echo off
         self._at("AT+CMEE=2")             # verbose errors
