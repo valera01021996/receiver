@@ -11,6 +11,7 @@ from .locks import task_lock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
+import time
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +60,29 @@ def _normalize_number_for_compare(number: str) -> str:
     Это защищает от различий форматов (+998..., 998..., пробелы, дефисы).
     """
     return re.sub(r"\D", "", number or "")
+
+
+def _read_text_when_stable(path: Path, *, attempts: int = 6, sleep_s: float = 0.2) -> str:
+    """Читаем файл, подождав пока его размер стабилизируется (smsd может ещё писать)."""
+    size_prev = -1
+    for _ in range(attempts):
+        try:
+            size_now = path.stat().st_size
+        except FileNotFoundError:
+            time.sleep(sleep_s)
+            continue
+        if size_now > 0 and size_now == size_prev:
+            # стабильный размер — читаем
+            txt = path.read_text(encoding="utf-8", errors="replace")
+            if txt.strip():
+                return txt
+        size_prev = size_now
+        time.sleep(sleep_s)
+    # Последняя попытка — читаем как есть
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return ""
 
 
 @shared_task(bind=True, name="jobs.sent_new_events_to_mattermost")
@@ -157,13 +181,20 @@ def get_new_events(self):
 
         for gfile in files:
             try:
-                data = read_gammu_file(gfile)
-                number = (data.get("number") or "").strip()
-                if not number:
-                    # Фоллбэк: парсим номер из имени файла, если в заголовке пусто
-                    number = _extract_number_from_filename(gfile.name)
-                text = (data.get("text") or "").strip()
-                log.info("File %s -> number='%s' text_len=%d", gfile.name, number, len(text))
+                # Ждём, пока файл допишется, затем читаем
+                text = read_gammu_file(gfile) if hasattr(read_gammu_file, "__call__") else _read_text_when_stable(gfile)
+                if isinstance(text, bytes):
+                    text = text.decode("utf-8", errors="replace")
+                if not isinstance(text, str):
+                    # на случай старого формата dict
+                    text = (text.get("text") or "") if isinstance(text, dict) else str(text or "")
+                number = _extract_number_from_filename(gfile.name)
+
+                try:
+                    fsize = gfile.stat().st_size
+                except Exception:
+                    fsize = -1
+                log.info("File %s -> size=%d number='%s' text_len=%d", gfile.name, fsize, number, len(text))
 
                 # фильтр по номеру (если задан)
                 if settings.ALLOWED_NUMBER:
