@@ -130,6 +130,13 @@ def get_new_events(self):
         files = sorted(list(inbox.glob("IN*.txt")) + list(inbox.glob("inboxIN*.txt")))  # только входящие
         if not files:
             log.info("No inbox files matched in %s (patterns: IN*.txt, inboxIN*.txt)", inbox)
+            # Частый кейс: smsd пишет прямо в корень спула, а не в inbox/
+            parent = inbox.parent
+            if parent and parent != inbox:
+                parent_files = sorted(list(parent.glob("IN*.txt")) + list(parent.glob("inboxIN*.txt")))
+                if parent_files:
+                    log.info("Fallback: found %d files in parent dir %s", len(parent_files), parent)
+                    files = parent_files
         found = len(files)
         created = 0
         log.info("Start polling Gammu inbox (task_id=%s). Found %d files", self.request.id, found)
