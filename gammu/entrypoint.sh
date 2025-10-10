@@ -47,4 +47,16 @@ if [ -z "$BIN" ]; then
   exit 127
 fi
 
-exec "$BIN" -f -c /etc/gammu-smsdrc
+CFG="/etc/gammu-smsdrc"
+
+echo "Trying: $BIN -f -c $CFG"
+set +e
+"$BIN" -f -c "$CFG"
+RC=$?
+set -e
+if [ $RC -eq 0 ]; then
+  exit 0
+fi
+
+echo "Fallback: $BIN -c $CFG"
+exec "$BIN" -c "$CFG"
