@@ -10,6 +10,7 @@ from .choises import Status
 from .locks import task_lock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import re
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +30,21 @@ def _provisional_post_id(gfile: Path, number: str) -> str:
     Пример имени: IN20251010_123456_00_+998901234567_00.txt
     """
     return f"smsfile:{number}:{gfile.name}"
+
+
+def _extract_number_from_filename(filename: str) -> str:
+    """Пробуем вытащить номер телефона из имени файла Gammu.
+    Ищем самую длинную последовательность цифр с опциональным '+'.
+    """
+    m = re.search(r"(\+?\d{7,})", filename)
+    return m.group(1) if m else ""
+
+
+def _normalize_number_for_compare(number: str) -> str:
+    """Нормализуем номер для сравнения: оставляем только цифры.
+    Это защищает от различий форматов (+998..., 998..., пробелы, дефисы).
+    """
+    return re.sub(r"\D", "", number or "")
 
 
 @shared_task(bind=True, name="jobs.sent_new_events_to_mattermost")
@@ -120,14 +136,18 @@ def get_new_events(self):
             try:
                 data = read_gammu_file(gfile)
                 number = (data.get("number") or "").strip()
+                if not number:
+                    # Фоллбэк: парсим номер из имени файла, если в заголовке пусто
+                    number = _extract_number_from_filename(gfile.name)
                 text = (data.get("text") or "").strip()
 
                 # фильтр по номеру (если задан)
-                if settings.ALLOWED_NUMBER and number != settings.ALLOWED_NUMBER:
-                    log.info("Untrusted number %s — skip & move to sent: %s", number, gfile.name)
-                    # переместим, чтобы не обрабатывать снова
-                    shutil.move(str(gfile), str(sent / gfile.name))
-                    continue
+                if settings.ALLOWED_NUMBER:
+                    if _normalize_number_for_compare(number) != _normalize_number_for_compare(settings.ALLOWED_NUMBER):
+                        log.info("Untrusted number %s — skip & move to sent: %s", number, gfile.name)
+                        # переместим, чтобы не обрабатывать снова
+                        shutil.move(str(gfile), str(sent / gfile.name))
+                        continue
 
                 if not text:
                     log.warning("Empty text in %s — skip & move", gfile.name)
