@@ -26,16 +26,22 @@ def read_gammu_file(path: Path) -> dict:
     in_header = True
     for line in raw:
         if in_header:
-            if not line.strip():
+            stripped = line.strip()
+            if not stripped:
                 in_header = False
                 continue
             if ":" in line:
                 k, v = line.split(":", 1)
                 header[k.strip().lower()] = v.strip()
+                continue
+            # Если строки заголовка нет (без ':'), считаем это началом тела
+            in_header = False
+            body.append(line)
         else:
             body.append(line)
+    text = ("\n".join(body)).strip()
     return {
         "number": header.get("from", ""),
         "sent": header.get("sent", ""),
-        "text": ("\n".join(body)).strip(),
+        "text": text,
     }
