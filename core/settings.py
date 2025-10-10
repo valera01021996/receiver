@@ -28,7 +28,7 @@ YOUTRACK_PROJECT = os.getenv('YOUTRACK_PROJECT', '')
 ALLOWED_NUMBER = os.getenv('ALLOWED_NUMBER')
 ACK_URL = os.getenv('ACK_URL')
 ALLOWED_ACK_USER_IDS = os.getenv('ALLOWED_ACK_USER_IDS')
-
+GAMMU_SENT  = os.getenv("GAMMU_SENT",  "/var/spool/gammu/sent")
 SMS_PROCESS_DELAY = os.getenv("SMS_PROCESS_DELAY")
 
 MENTION_USERS = os.getenv("MENTION_USERS")

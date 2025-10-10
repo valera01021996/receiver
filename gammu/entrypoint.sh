@@ -44,8 +44,7 @@ gammu --config /etc/gammu-smsdrc --identify || true
 BIN="$(command -v gammu-smsd || true)"
 if [ -z "$BIN" ]; then
   echo "ERROR: gammu-smsd binary not found in PATH" >&2
-  echo "PATH=$PATH" >&2
   exit 127
 fi
 
-exec "$BIN" -n gammu-smsd -c /etc/gammu-smsdrc -f -u root
+exec "$BIN" -f -c /etc/gammu-smsdrc
