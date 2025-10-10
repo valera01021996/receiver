@@ -1,5 +1,5 @@
 from typing import Optional, NamedTuple
-
+from pathlib import Path
 
 class Alert(NamedTuple):
     alertname: str
@@ -20,26 +20,22 @@ def parse_message(text: str) -> Optional[Alert]:
         return None
 
 
-def gsm7ext_normalize(s: str) -> str:
-    # GSM 7-bit extension table (последовательности после 0x1B)
-    mapping = {
-        "@": "|",  # \x1b@  -> |
-        "(": "{",  # \x1b(  -> {
-        ")": "}",  # \x1b)  -> }
-        "/": "\\",  # \x1b/  -> \
-        "<": "[",  # \x1b<  -> [
-        "=": "~",  # \x1b=  -> ~
-        ">": "]",  # \x1b>  -> ]
-        # "\x65": "€", # иногда встречается \x1b\x65 -> €
-    }
-    out = []
-    i = 0
-    while i < len(s):
-        if s[i] == "\x1b" and i + 1 < len(s):
-            ch = s[i + 1]
-            out.append(mapping.get(ch, ch))  # если не знаем — вставим как есть второй байт
-            i += 2
+def read_gammu_file(path: Path) -> dict:
+    raw = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    header, body = {}, []
+    in_header = True
+    for line in raw:
+        if in_header:
+            if not line.strip():
+                in_header = False
+                continue
+            if ":" in line:
+                k, v = line.split(":", 1)
+                header[k.strip().lower()] = v.strip()
         else:
-            out.append(s[i])
-            i += 1
-    return "".join(out)
+            body.append(line)
+    return {
+        "number": header.get("from", ""),
+        "sent": header.get("sent", ""),
+        "text": ("\n".join(body)).strip(),
+    }

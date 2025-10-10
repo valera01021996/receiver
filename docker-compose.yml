@@ -59,6 +59,8 @@ services:
       - /dev/serial/by-id:/dev/serial/by-id
     security_opt:
       - apparmor=unconfined
+    volumes:
+      - gammu-spool:/var/spool/gammu:ro
     restart: always
 
   beat:
@@ -85,6 +87,21 @@ services:
     ports:
       - "80:80"
     networks: [appnet]
+    restart: always
+
+
+  smsd:
+    build: ./gammu
+    environment:
+      MODEM_PORT: /dev/serial/by-id/usb-Technology_Mobile-if00-port0  # ← возьми нужный
+      CONNECTION: at115200
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/ttyUSB1:/dev/ttyUSB1
+      - /dev/serial/by-id:/dev/serial/by-id
+    privileged: true   # проще всего дать доступ к /dev/*
+    volumes:
+      - gammu-spool:/var/spool/gammu
     restart: always
 
 networks:

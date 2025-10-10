@@ -1,0 +1,15 @@
+[gammu]
+device = /dev/ttyUSB0
+connection = at115200
+
+[smsd]
+service = files
+logfile = /var/log/gammu-smsd.log
+inboxpath = /var/spool/gammu/inbox
+outboxpath = /var/spool/gammu/outbox
+sentsmspath = /var/spool/gammu/sent
+errorsmspath = /var/spool/gammu/error
+decode_unicode = 1
+concat = 1
+# необязательно, но удобно:
+checksecurity = 0

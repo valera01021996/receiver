@@ -2,13 +2,14 @@ import logging
 from alerts.models import Events
 from celery import shared_task
 from django.conf import settings
-from .sms_rec import AtSmsReceiver
+import shutil
 from .mattermost_client import MattermostClient
 from .youtrack_client import YouTrackClient
-from .utils import parse_message, gsm7ext_normalize
+from .utils import parse_message, read_gammu_file
 from .choises import Status
 from .locks import task_lock
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -21,6 +22,13 @@ def add5h_keep_utc(text_iso_z):
     out = (dt + timedelta(hours=5)).astimezone(timezone.utc)
     return out.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
+def _provisional_post_id(gfile: Path, number: str) -> str:
+    """
+    Делаем стабильный post_id для get_or_create.
+    Самое простое — по имени файла (оно уникальное) + номер.
+    Пример имени: IN20251010_123456_00_+998901234567_00.txt
+    """
+    return f"smsfile:{number}:{gfile.name}"
 
 
 @shared_task(bind=True, name="jobs.sent_new_events_to_mattermost")
@@ -44,8 +52,6 @@ def sent_new_events_to_mattermost(self) -> str:
                 if not sms_text:
                     log.warning("Event id = %s: empty sms_text — skipping", ev_id)
                     continue
-
-                sms_text = gsm7ext_normalize(sms_text)
 
                 parsed = parse_message(sms_text)
                 if not parsed or len(parsed) != 5:
@@ -96,44 +102,62 @@ def sent_new_events_to_mattermost(self) -> str:
 
 @shared_task(bind=True, name="jobs.get_new_events")
 def get_new_events(self):
+    inbox = Path(settings.GAMMU_INBOX)
+    sent = Path(settings.GAMMU_SENT)
+    sent.mkdir(parents=True, exist_ok=True)
     with task_lock("lock:jobs.get_new_events", timeout=300) as acquired:
         if not acquired:
             log.info("Skip get_new_events: already running")
             return {"found": 0, "created": 0, "skipped": True}
-        sms = AtSmsReceiver(port=settings.MODEM_PORT, storage=settings.MODEM_STORAGE)
-        try:
-            idxs = sms.list_unread()
-            created = 0
-            log.info("Start polling SMS (task_id=%s). Found %d unread", self.request.id, len(idxs))
+        files = sorted(inbox.glob("IN*.txt"))  # только входящие
+        found = len(files)
+        created = 0
+        log.info("Start polling Gammu inbox (task_id=%s). Found %d files", self.request.id, found)
 
-            for idx in idxs:
-                try:
-                    data = sms.read_sms(idx)
-                    number = data.get("number")
-                    text = data.get("text", "").strip()
-                    if settings.ALLOWED_NUMBER and number != settings.ALLOWED_NUMBER:
-                        log.info("Untrusted number %s, deleting idx=%s", number, idx)
-                        sms.delete_sms(idx)
-                        continue
-                    if not text:
-                        log.warning("SMS idx=%s has empty text, skip", idx)
-                        sms.delete_sms(idx)
-                        continue
+        for gfile in files:
+            try:
+                data = read_gammu_file(gfile)
+                number = (data.get("number") or "").strip()
+                text = (data.get("text") or "").strip()
 
-                    provisional_post_id = f"sms:{idx}"
-                    obj, is_created = Events.objects.get_or_create(
-                        post_id=provisional_post_id,
-                        defaults={"issue_id": None, "status": Status.NEW, "acked_by": None, "sms_text": text},
-                    )
-                    obj.save()
-                    sms.delete_sms(idx)
-                    if is_created:
-                        created += 1
-                        log.info("Created Event for SMS idx=%s (post_id=%s)", idx, provisional_post_id)
-                except Exception:
-                    log.exception("Failed to process SMS idx=%s", idx)
+                # фильтр по номеру (если задан)
+                if settings.ALLOWED_NUMBER and number != settings.ALLOWED_NUMBER:
+                    log.info("Untrusted number %s — skip & move to sent: %s", number, gfile.name)
+                    # переместим, чтобы не обрабатывать снова
+                    shutil.move(str(gfile), str(sent / gfile.name))
+                    continue
 
-            log.info("Done polling. Created: %d / Total seen: %d", created, len(idxs))
-            return {"found": len(idxs), "created": created}
-        finally:
-            sms.close()
+                if not text:
+                    log.warning("Empty text in %s — skip & move", gfile.name)
+                    shutil.move(str(gfile), str(sent / gfile.name))
+                    continue
+
+                provisional_post_id = _provisional_post_id(gfile, number)
+
+                obj, is_created = Events.objects.get_or_create(
+                    post_id=provisional_post_id,
+                    defaults={
+                        "issue_id": None,
+                        "status": Status.NEW,
+                        "acked_by": None,
+                        "sms_text": text,
+                    }
+                )
+                obj.save()
+
+                # перемещаем файл в sent (считаем «обработан»)
+                shutil.move(str(gfile), str(sent / gfile.name))
+
+                if is_created:
+                    created += 1
+                    log.info("Created Event from %s (post_id=%s)", gfile.name, provisional_post_id)
+                else:
+                    log.info("Event exists for %s (post_id=%s) — moved only", gfile.name, provisional_post_id)
+
+            except Exception:
+                log.exception("Failed to process %s", gfile)
+                # при ошибке можно либо оставить файл, либо переложить в отдельную папку errors
+                # shutil.move(str(gfile), str(Path(settings.GAMMU_ERROR) / gfile.name))
+
+        log.info("Done. Created: %d / Total seen: %d", created, found)
+        return {"found": found, "created": created}

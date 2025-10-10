@@ -33,9 +33,7 @@ SMS_PROCESS_DELAY = os.getenv("SMS_PROCESS_DELAY")
 
 MENTION_USERS = os.getenv("MENTION_USERS")
 
-MODEM_PORT = os.getenv("MODEM_PORT", "/dev/serial/by-id/usb-HUAWEI_HUAWEI_Mobile-if01-port0")
-MODEM_STORAGE = os.getenv("MODEM_STORAGE", "SM")
-
+GAMMU_INBOX = os.getenv("GAMMU_INBOX", "/var/spool/gammu/inbox")
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
