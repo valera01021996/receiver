@@ -111,3 +111,4 @@ volumes:
   pgdata:
   redisdata:
   staticdata:
+  gammu-spool:
