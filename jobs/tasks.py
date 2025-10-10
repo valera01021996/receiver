@@ -109,7 +109,9 @@ def get_new_events(self):
         if not acquired:
             log.info("Skip get_new_events: already running")
             return {"found": 0, "created": 0, "skipped": True}
-        files = sorted(inbox.glob("IN*.txt"))  # только входящие
+        # В некоторых конфигурациях Gammu создаёт файлы вида "inboxIN...txt"
+        # Поэтому подхватываем оба варианта: "IN*.txt" и "inboxIN*.txt"
+        files = sorted(list(inbox.glob("IN*.txt")) + list(inbox.glob("inboxIN*.txt")))  # только входящие
         found = len(files)
         created = 0
         log.info("Start polling Gammu inbox (task_id=%s). Found %d files", self.request.id, found)

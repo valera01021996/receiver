@@ -58,7 +58,8 @@ services:
     security_opt:
       - apparmor=unconfined
     volumes:
-      - gammu-spool:/var/spool/gammu:ro
+      # должен иметь права перемещать файлы из inbox в sent
+      - gammu-spool:/var/spool/gammu
     restart: always
 
   beat:
