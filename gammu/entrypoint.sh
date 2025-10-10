@@ -42,4 +42,4 @@ echo "Identify:"
 gammu --config /etc/gammu-smsdrc --identify || true
 
 # Старт демона
-exec smsd -n gammu-smsd -c /etc/gammu-smsdrc -f -u root
+/usr/sbin/gammu-smsd -n gammu-smsd -c /etc/gammu-smsdrc -f -u root
