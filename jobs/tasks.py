@@ -34,10 +34,24 @@ def _provisional_post_id(gfile: Path, number: str) -> str:
 
 def _extract_number_from_filename(filename: str) -> str:
     """Пробуем вытащить номер телефона из имени файла Gammu.
-    Ищем самую длинную последовательность цифр с опциональным '+'.
+    Типичный формат: inboxINYYYYMMDD_HHMMSS_XX_+998XXXXXXXXX_YY.txt
+    Предпочитаем сегмент, начинающийся с '+', затем самый длинный цифровой.
     """
-    m = re.search(r"(\+?\d{7,})", filename)
-    return m.group(1) if m else ""
+    name = Path(filename).name
+    # Разобьём по подчёркиванию/точке/дефису и проверим сегменты
+    segments = re.split(r"[_\.-]", name)
+    candidates = [s for s in segments if re.fullmatch(r"\+?\d{7,}", s)]
+    if not candidates:
+        # Фоллбэк: все вхождения по шаблону в целом имени
+        matches = re.findall(r"\+?\d{7,}", name)
+        if not matches:
+            return ""
+        # сортируем: сначала с '+', затем по длине по убыванию
+        matches.sort(key=lambda s: (not s.startswith('+'), -len(s)))
+        return matches[0]
+    # сортируем: сначала с '+', затем по длине по убыванию
+    candidates.sort(key=lambda s: (not s.startswith('+'), -len(s)))
+    return candidates[0]
 
 
 def _normalize_number_for_compare(number: str) -> str:
