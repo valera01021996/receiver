@@ -128,6 +128,8 @@ def get_new_events(self):
         # В некоторых конфигурациях Gammu создаёт файлы вида "inboxIN...txt"
         # Поэтому подхватываем оба варианта: "IN*.txt" и "inboxIN*.txt"
         files = sorted(list(inbox.glob("IN*.txt")) + list(inbox.glob("inboxIN*.txt")))  # только входящие
+        if not files:
+            log.info("No inbox files matched in %s (patterns: IN*.txt, inboxIN*.txt)", inbox)
         found = len(files)
         created = 0
         log.info("Start polling Gammu inbox (task_id=%s). Found %d files", self.request.id, found)
@@ -140,11 +142,12 @@ def get_new_events(self):
                     # Фоллбэк: парсим номер из имени файла, если в заголовке пусто
                     number = _extract_number_from_filename(gfile.name)
                 text = (data.get("text") or "").strip()
+                log.info("File %s -> number='%s' text_len=%d", gfile.name, number, len(text))
 
                 # фильтр по номеру (если задан)
                 if settings.ALLOWED_NUMBER:
                     if _normalize_number_for_compare(number) != _normalize_number_for_compare(settings.ALLOWED_NUMBER):
-                        log.info("Untrusted number %s — skip & move to sent: %s", number, gfile.name)
+                        log.info("Untrusted number %s — skip & move to sent: %s (allowed=%s)", number, gfile.name, settings.ALLOWED_NUMBER)
                         # переместим, чтобы не обрабатывать снова
                         shutil.move(str(gfile), str(sent / gfile.name))
                         continue
