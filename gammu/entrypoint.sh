@@ -42,21 +42,21 @@ echo "Identify:"
 gammu --config /etc/gammu-smsdrc --identify || true
 
 BIN="$(command -v gammu-smsd || true)"
-if [ -z "$BIN" ]; then
-  echo "ERROR: gammu-smsd binary not found in PATH" >&2
-  exit 127
-fi
-
 CFG="/etc/gammu-smsdrc"
+LOG="${LOGFILE:-/var/log/gammu-smsd.log}"
 
-echo "Trying: $BIN -f -c $CFG"
-set +e
-"$BIN" -f -c "$CFG"
-RC=$?
-set -e
-if [ $RC -eq 0 ]; then
-  exit 0
+mkdir -p "$(dirname "$LOG")"
+touch "$LOG"
+
+echo "Starting: $BIN -c $CFG (daemon mode)"
+"$BIN" -c "$CFG"
+
+sleep 2
+if ! pgrep -x gammu-smsd >/dev/null; then
+  echo "ERROR: gammu-smsd didn't start; last log:"
+  tail -n 200 "$LOG" || true
+  exit 1
 fi
 
-echo "Fallback: $BIN -c $CFG"
-exec "$BIN" -c "$CFG"
+echo "gammu-smsd is running. Tailing logs: $LOG"
+exec tail -F "$LOG"
