@@ -41,5 +41,11 @@ ls -l "$PORT" || true
 echo "Identify:"
 gammu --config /etc/gammu-smsdrc --identify || true
 
-# Старт демона
-/usr/sbin/gammu-smsd -n gammu-smsd -c /etc/gammu-smsdrc -f -u root
+BIN="$(command -v gammu-smsd || true)"
+if [ -z "$BIN" ]; then
+  echo "ERROR: gammu-smsd binary not found in PATH" >&2
+  echo "PATH=$PATH" >&2
+  exit 127
+fi
+
+exec "$BIN" -n gammu-smsd -c /etc/gammu-smsdrc -f -u root
