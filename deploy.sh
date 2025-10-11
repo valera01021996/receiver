@@ -135,7 +135,16 @@ outboxpath = /var/spool/gammu/outbox/
 sentsmspath = /var/spool/gammu/sent/
 errorsmspath = /var/spool/gammu/error/
 
+# Настройки для склеивания многочастных SMS
+decode_unicode = 1
+concat = 1
+concatenate_multi_part = 1
+
+# Безопасность
 chacksecurity = 0
+
+# Кодировка и дополнительно
+receive_unicode = 1
 EOF
 sudo chown root:root /etc/gammu-smsdrc
 sudo chmod 644 /etc/gammu-smsdrc

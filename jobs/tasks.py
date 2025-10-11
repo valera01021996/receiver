@@ -62,12 +62,20 @@ def sms_watch(self):
                                 phone, phone_normalized, msg.filename, settings.ALLOWED_NUMBER, allowed_normalized)
                     continue
                     
-                # Фильтр по минимальной длине текста (защита от фрагментов)
-                if len(msg.text.strip()) < 10:
-                    log.warning("Text too short (%d chars) — skip: %s", len(msg.text.strip()), msg.filename)
-                    continue
-                    
                 text = msg.text
+                
+                # Фильтр по минимальной длине текста (защита от фрагментов)
+                if len(text.strip()) < 10:
+                    log.warning("Text too short (%d chars) — skip: %s", len(text.strip()), msg.filename)
+                    continue
+                
+                # Проверка формата: должно быть 5 полей через разделитель |
+                # Формат: alertname|instance|summary|startsat|severity
+                parts = text.strip().split('|')
+                if len(parts) < 5:
+                    log.warning("SMS fragment detected (%d fields, expected 5) — skip: %s. Text: '%s'", 
+                                len(parts), msg.filename, text[:100])
+                    continue
                 provisional_post_id = f"smsfile:{phone}:{msg.filename}"
                 
                 obj, is_created = Events.objects.get_or_create(
