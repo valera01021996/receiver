@@ -10,12 +10,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import os
 from .sms_watcher import SMSInboxWatcher
-import uuid
 from .choises import Status
 
 log = logging.getLogger(__name__)
-
-# SMS_PROCESS_DELAY = getattr(settings, "SMS_PROCESS_DELAY", 3)
 
 
 def add5h_keep_utc(text_iso_z):
@@ -56,8 +53,13 @@ def sms_watch(self):
         for msg in msgs:
             try:
                 phone = msg.phone
-                if phone not in settings.ALLOWED_NUMBER:
-                    log.warning("Untrusted phone %s — skip: %s", phone, msg.filename)
+                # Нормализуем номера для сравнения (убираем все нецифровые символы)
+                phone_normalized = ''.join(filter(str.isdigit, phone))
+                allowed_normalized = ''.join(filter(str.isdigit, settings.ALLOWED_NUMBER or ''))
+                
+                if settings.ALLOWED_NUMBER and phone_normalized != allowed_normalized:
+                    log.warning("Untrusted phone %s (normalized: %s) — skip: %s (allowed: %s, normalized: %s)", 
+                                phone, phone_normalized, msg.filename, settings.ALLOWED_NUMBER, allowed_normalized)
                     continue
                     
                 # Фильтр по минимальной длине текста (защита от фрагментов)
