@@ -18,11 +18,11 @@ app.conf.update(
 
 # ⬇️ Перенесённый CELERY_BEAT_SCHEDULE
 app.conf.beat_schedule = {
-    "run-get-new-events-every-2-min": {
-        "task": "jobs.get_new_events",
+    "run-sms-watch-every-2-min": {
+        "task": "jobs.sms_watch",
         "schedule": timedelta(minutes=2),
     },
-    "runsent_new_events_to_mattermost-2-min": {
+    "run_sent_new_events_to_mattermost-2-min": {
         "task": "jobs.sent_new_events_to_mattermost",
         "schedule": timedelta(minutes=2),
     },

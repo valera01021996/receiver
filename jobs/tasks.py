@@ -2,16 +2,16 @@ import logging
 from alerts.models import Events
 from celery import shared_task
 from django.conf import settings
-import shutil
 from .mattermost_client import MattermostClient
 from .youtrack_client import YouTrackClient
 from .utils import parse_message, read_gammu_file
-from .choises import Status
 from .locks import task_lock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-import re
-import time
+import os
+from .sms_watcher import SMSInboxWatcher
+import uuid
+from .choises import Status
 
 log = logging.getLogger(__name__)
 
@@ -24,65 +24,76 @@ def add5h_keep_utc(text_iso_z):
     out = (dt + timedelta(hours=5)).astimezone(timezone.utc)
     return out.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
-def _provisional_post_id(gfile: Path, number: str) -> str:
-    """
-    Делаем стабильный post_id для get_or_create.
-    Самое простое — по имени файла (оно уникальное) + номер.
-    Пример имени: IN20251010_123456_00_+998901234567_00.txt
-    """
-    return f"smsfile:{number}:{gfile.name}"
 
 
-def _extract_number_from_filename(filename: str) -> str:
-    """Пробуем вытащить номер телефона из имени файла Gammu.
-    Типичный формат: inboxINYYYYMMDD_HHMMSS_XX_+998XXXXXXXXX_YY.txt
-    Предпочитаем сегмент, начинающийся с '+', затем самый длинный цифровой.
-    """
-    name = Path(filename).name
-    # Разобьём по подчёркиванию/точке/дефису и проверим сегменты
-    segments = re.split(r"[_\.-]", name)
-    candidates = [s for s in segments if re.fullmatch(r"\+?\d{7,}", s)]
-    if not candidates:
-        # Фоллбэк: все вхождения по шаблону в целом имени
-        matches = re.findall(r"\+?\d{7,}", name)
-        if not matches:
-            return ""
-        # сортируем: сначала с '+', затем по длине по убыванию
-        matches.sort(key=lambda s: (not s.startswith('+'), -len(s)))
-        return matches[0]
-    # сортируем: сначала с '+', затем по длине по убыванию
-    candidates.sort(key=lambda s: (not s.startswith('+'), -len(s)))
-    return candidates[0]
+@shared_task(bind=True, name="jobs.sms_watch")
+def sms_watch(self):
+    with task_lock("lock:jobs.sms_watch", timeout=300) as acquired:
+        if not acquired:
+            log.info("Skip sms_watch: already running")
+            return {"found": 0, "created": 0, "skipped": True}
+            
+        inbox = os.getenv("INBOX_DIR", "/var/spool/gammu/inbox")
+        processed = os.getenv("PROCESSED_DIR", "/var/spool/gammu/processed")
+        loop_interval = int(os.getenv("LOOP_INTERVAL", "60"))
+        sleep_between = float(os.getenv("SLEEP_BETWEEN_FILES", "0.5"))
+        max_per_iter = int(os.getenv("MAX_PER_ITERATION", "50"))
+        error_backoff = float(os.getenv("ERROR_BACKOFF", "2"))
 
+        watcher = SMSInboxWatcher(
+            inbox_dir=inbox,
+            processed_dir=processed,
+            sleep_between_files=sleep_between,
+            max_per_iteration=max_per_iter,
+            error_backoff=error_backoff,
+        )
 
-def _normalize_number_for_compare(number: str) -> str:
-    """Нормализуем номер для сравнения: оставляем только цифры.
-    Это защищает от различий форматов (+998..., 998..., пробелы, дефисы).
-    """
-    return re.sub(r"\D", "", number or "")
+        msgs = watcher.process_once()
+        found = len(msgs)
+        created = 0
+        log.info("Start SMS watching (task_id=%s). Found %d messages", self.request.id, found)
+        
+        for msg in msgs:
+            try:
+                phone = msg.phone
+                if phone not in settings.ALLOWED_NUMBER:
+                    log.warning("Untrusted phone %s — skip: %s", phone, msg.filename)
+                    continue
+                    
+                # Фильтр по минимальной длине текста (защита от фрагментов)
+                if len(msg.text.strip()) < 10:
+                    log.warning("Text too short (%d chars) — skip: %s", len(msg.text.strip()), msg.filename)
+                    continue
+                    
+                text = msg.text
+                provisional_post_id = f"smsfile:{phone}:{msg.filename}"
+                
+                obj, is_created = Events.objects.get_or_create(
+                    post_id=provisional_post_id,
+                    defaults={
+                        "issue_id": None,
+                        "status": Status.NEW,
+                        "acked_by": None,
+                        "sms_text": text,
+                    }
+                )
+                obj.save()
+                
+                if is_created:
+                    created += 1
+                    log.info("✅ CREATED Event #%d from %s (post_id=%s)", created, msg.filename, provisional_post_id)
+                else:
+                    log.info("Event exists for %s (post_id=%s) — skip", msg.filename, provisional_post_id)
+                    
+            except Exception:
+                log.exception("Failed to process %s", msg.filename)
+                
+        log.info("Done. Created: %d / Total seen: %d", created, found)
+        return {"found": found, "created": created}
+        
+        
+        
 
-
-def _read_text_when_stable(path: Path, *, attempts: int = 6, sleep_s: float = 0.2) -> str:
-    """Читаем файл, подождав пока его размер стабилизируется (smsd может ещё писать)."""
-    size_prev = -1
-    for _ in range(attempts):
-        try:
-            size_now = path.stat().st_size
-        except FileNotFoundError:
-            time.sleep(sleep_s)
-            continue
-        if size_now > 0 and size_now == size_prev:
-            # стабильный размер — читаем
-            txt = path.read_text(encoding="utf-8", errors="replace")
-            if txt.strip():
-                return txt
-        size_prev = size_now
-        time.sleep(sleep_s)
-    # Последняя попытка — читаем как есть
-    try:
-        return path.read_text(encoding="utf-8", errors="replace")
-    except Exception:
-        return ""
 
 
 @shared_task(bind=True, name="jobs.sent_new_events_to_mattermost")
@@ -152,89 +163,3 @@ def sent_new_events_to_mattermost(self) -> str:
             except Exception:
                 log.exception("Event id = %s: error while sending", ev_id)
         return {"processed": processed}
-
-
-@shared_task(bind=True, name="jobs.get_new_events")
-def get_new_events(self):
-    inbox = Path(settings.GAMMU_INBOX)
-    sent = Path(settings.GAMMU_SENT)
-    sent.mkdir(parents=True, exist_ok=True)
-    with task_lock("lock:jobs.get_new_events", timeout=300) as acquired:
-        if not acquired:
-            log.info("Skip get_new_events: already running")
-            return {"found": 0, "created": 0, "skipped": True}
-        # В некоторых конфигурациях Gammu создаёт файлы вида "inboxIN...txt"
-        # Поэтому подхватываем оба варианта: "IN*.txt" и "inboxIN*.txt"
-        files = sorted(list(inbox.glob("IN*.txt")) + list(inbox.glob("inboxIN*.txt")))  # только входящие
-        if not files:
-            log.info("No inbox files matched in %s (patterns: IN*.txt, inboxIN*.txt)", inbox)
-            # Частый кейс: smsd пишет прямо в корень спула, а не в inbox/
-            parent = inbox.parent
-            if parent and parent != inbox:
-                parent_files = sorted(list(parent.glob("IN*.txt")) + list(parent.glob("inboxIN*.txt")))
-                if parent_files:
-                    log.info("Fallback: found %d files in parent dir %s", len(parent_files), parent)
-                    files = parent_files
-        found = len(files)
-        created = 0
-        log.info("Start polling Gammu inbox (task_id=%s). Found %d files", self.request.id, found)
-
-        for gfile in files:
-            try:
-                # Ждём, пока файл допишется, затем читаем
-                text = read_gammu_file(gfile) if hasattr(read_gammu_file, "__call__") else _read_text_when_stable(gfile)
-                if isinstance(text, bytes):
-                    text = text.decode("utf-8", errors="replace")
-                if not isinstance(text, str):
-                    # на случай старого формата dict
-                    text = (text.get("text") or "") if isinstance(text, dict) else str(text or "")
-                number = _extract_number_from_filename(gfile.name)
-
-                try:
-                    fsize = gfile.stat().st_size
-                except Exception:
-                    fsize = -1
-                log.info("File %s -> size=%d number='%s' text_len=%d", gfile.name, fsize, number, len(text))
-
-                # фильтр по номеру (если задан)
-                if settings.ALLOWED_NUMBER:
-                    if _normalize_number_for_compare(number) != _normalize_number_for_compare(settings.ALLOWED_NUMBER):
-                        log.info("Untrusted number %s — skip & move to sent: %s (allowed=%s)", number, gfile.name, settings.ALLOWED_NUMBER)
-                        # переместим, чтобы не обрабатывать снова
-                        shutil.move(str(gfile), str(sent / gfile.name))
-                        continue
-
-                if not text:
-                    log.warning("Empty text in %s — skip & move", gfile.name)
-                    shutil.move(str(gfile), str(sent / gfile.name))
-                    continue
-
-                provisional_post_id = _provisional_post_id(gfile, number)
-
-                obj, is_created = Events.objects.get_or_create(
-                    post_id=provisional_post_id,
-                    defaults={
-                        "issue_id": None,
-                        "status": Status.NEW,
-                        "acked_by": None,
-                        "sms_text": text,
-                    }
-                )
-                obj.save()
-
-                # перемещаем файл в sent (считаем «обработан»)
-                shutil.move(str(gfile), str(sent / gfile.name))
-
-                if is_created:
-                    created += 1
-                    log.info("Created Event from %s (post_id=%s)", gfile.name, provisional_post_id)
-                else:
-                    log.info("Event exists for %s (post_id=%s) — moved only", gfile.name, provisional_post_id)
-
-            except Exception:
-                log.exception("Failed to process %s", gfile)
-                # при ошибке можно либо оставить файл, либо переложить в отдельную папку errors
-                # shutil.move(str(gfile), str(Path(settings.GAMMU_ERROR) / gfile.name))
-
-        log.info("Done. Created: %d / Total seen: %d", created, found)
-        return {"found": found, "created": created}

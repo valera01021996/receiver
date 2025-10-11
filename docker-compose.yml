@@ -45,21 +45,25 @@ services:
     env_file: .env
     environment:
       ROLE: worker
+      # Настройки для SMS watcher
+      INBOX_DIR: /var/spool/gammu/inbox
+      PROCESSED_DIR: /var/spool/gammu/processed
+      LOOP_INTERVAL: 60
+      SLEEP_BETWEEN_FILES: 0.5
+      MAX_PER_ITERATION: 50
+      ERROR_BACKOFF: 2
     depends_on:
       - postgres
       - redis
     networks: [appnet]
-    # Тоже нужен доступ к ModemManager, если worker вызывает mmcli
-    privileged: true             # самый простой способ разрешить доступ к /dev/*
-    devices:
-      - /dev/ttyUSB0:/dev/ttyUSB0
-      - /dev/ttyUSB1:/dev/ttyUSB1
-      - /dev/serial/by-id:/dev/serial/by-id
-    security_opt:
-      - apparmor=unconfined
+    # Gammu работает на хосте, поэтому доступ к /dev не нужен
     volumes:
-      # должен иметь права перемещать файлы из inbox в sent
-      - gammu-spool:/var/spool/gammu
+      # Монтируем папки Gammu с хоста для SMS watcher
+      - /var/spool/gammu/inbox:/var/spool/gammu/inbox
+      - /var/spool/gammu/processed:/var/spool/gammu/processed
+      - /var/spool/gammu/sent:/var/spool/gammu/sent
+      - /var/spool/gammu/outbox:/var/spool/gammu/outbox
+      - /var/spool/gammu/error:/var/spool/gammu/error
     restart: always
 
   beat:
@@ -89,19 +93,17 @@ services:
     restart: always
 
 
-  smsd:
-    build: ./gammu
-    environment:
-      MODEM_PORT: /dev/serial/by-id/usb-Technology_Mobile-if00-port0  # ← возьми нужный
-      CONNECTION: at115200
-    devices:
-      - /dev/ttyUSB0:/dev/ttyUSB0
-      - /dev/ttyUSB1:/dev/ttyUSB1
-      - /dev/serial/by-id:/dev/serial/by-id
-    privileged: true   # проще всего дать доступ к /dev/*
-    volumes:
-      - gammu-spool:/var/spool/gammu
-    restart: always
+# Gammu smsd теперь работает на хосте, не в Docker
+# Настройте gammu-smsd на хосте с конфигом:
+# [gammu]
+# device = /dev/ttyUSB1
+# connection = at
+# [smsd]
+# service = files
+# inboxpath = /var/spool/gammu/inbox
+# outboxpath = /var/spool/gammu/outbox
+# sentsmspath = /var/spool/gammu/sent
+# errorsmspath = /var/spool/gammu/error
 
 networks:
   appnet:
@@ -110,4 +112,3 @@ volumes:
   pgdata:
   redisdata:
   staticdata:
-  gammu-spool:

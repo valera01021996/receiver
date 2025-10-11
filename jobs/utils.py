@@ -20,28 +20,5 @@ def parse_message(text: str) -> Optional[Alert]:
         return None
 
 
-def read_gammu_file(path: Path) -> dict:
-    raw = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    header, body = {}, []
-    in_header = True
-    for line in raw:
-        if in_header:
-            stripped = line.strip()
-            if not stripped:
-                in_header = False
-                continue
-            if ":" in line:
-                k, v = line.split(":", 1)
-                header[k.strip().lower()] = v.strip()
-                continue
-            # Если строки заголовка нет (без ':'), считаем это началом тела
-            in_header = False
-            body.append(line)
-        else:
-            body.append(line)
-    text = ("\n".join(body)).strip()
-    return {
-        "number": header.get("from", ""),
-        "sent": header.get("sent", ""),
-        "text": text,
-    }
+def read_gammu_file(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="replace").strip()
