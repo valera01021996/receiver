@@ -61,9 +61,6 @@ services:
       # Монтируем папки Gammu с хоста для SMS watcher
       - /var/spool/gammu/inbox:/var/spool/gammu/inbox
       - /var/spool/gammu/processed:/var/spool/gammu/processed
-      - /var/spool/gammu/sent:/var/spool/gammu/sent
-      - /var/spool/gammu/outbox:/var/spool/gammu/outbox
-      - /var/spool/gammu/error:/var/spool/gammu/error
     restart: always
 
   beat:
@@ -92,18 +89,6 @@ services:
     networks: [appnet]
     restart: always
 
-
-# Gammu smsd теперь работает на хосте, не в Docker
-# Настройте gammu-smsd на хосте с конфигом:
-# [gammu]
-# device = /dev/ttyUSB1
-# connection = at
-# [smsd]
-# service = files
-# inboxpath = /var/spool/gammu/inbox
-# outboxpath = /var/spool/gammu/outbox
-# sentsmspath = /var/spool/gammu/sent
-# errorsmspath = /var/spool/gammu/error
 
 networks:
   appnet:

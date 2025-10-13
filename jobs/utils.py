@@ -18,7 +18,3 @@ def parse_message(text: str) -> Optional[Alert]:
         return Alert(*parts)
     except (AttributeError, ValueError):
         return None
-
-
-def read_gammu_file(path: Path) -> str:
-    return path.read_text(encoding="utf-8", errors="replace").strip()

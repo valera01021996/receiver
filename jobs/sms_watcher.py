@@ -27,7 +27,8 @@ class SMSInboxWatcher:
         self.inbox_dir = Path(inbox_dir)
         self.processed_dir = Path(processed_dir)
         self.file_re = re.compile(filename_regex)
-        self.encodings = tuple(encodings or ("utf-8", "cp1251", "latin1"))
+        # Расширенный список кодировок для кириллицы
+        self.encodings = tuple(encodings or ("utf-8", "cp1251", "windows-1251", "koi8-r", "iso-8859-5", "latin1"))
         self.sleep_between_files = float(sleep_between_files)
         self.max_per_iteration = int(max_per_iteration)
         self.error_backoff = float(error_backoff)
@@ -35,12 +36,20 @@ class SMSInboxWatcher:
         self.processed_dir.mkdir(parents=True, exist_ok=True)
 
     def _read_text(self, path: Path) -> str:
+        """Читает текст с автоопределением кодировки"""
         for enc in self.encodings:
             try:
-                return path.read_text(encoding=enc, errors="strict").strip()
-            except Exception:
+                text = path.read_text(encoding=enc, errors="strict").strip()
+                # Проверяем, что в тексте нет знаков вопроса (ошибки декодирования)
+                if text and '�' not in text:
+                    print(f"[DEBUG] Файл {path.name} прочитан с кодировкой {enc}")
+                    return text
+            except (UnicodeDecodeError, UnicodeError, LookupError):
                 continue
-        return path.read_text(errors="ignore").strip()
+        
+        # Последняя попытка с игнорированием ошибок
+        print(f"[WARN] Не удалось определить кодировку для {path.name}, используем fallback")
+        return path.read_text(encoding="utf-8", errors="replace").strip()
 
     def _iter_sms_files(self):
         if not self.inbox_dir.exists():
