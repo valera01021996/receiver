@@ -33,7 +33,7 @@ def sms_watch(self):
         inbox = os.getenv("INBOX_DIR", "/var/spool/gammu/inbox")
         processed = os.getenv("PROCESSED_DIR", "/var/spool/gammu/processed")
         sleep_between = float(os.getenv("SLEEP_BETWEEN_FILES", "0.5"))
-        max_per_iter = int(os.getenv("MAX_PER_ITERATION", "50"))
+        max_per_iter = int(os.getenv("MAX_PER_ITERATION", "10"))
         error_backoff = float(os.getenv("ERROR_BACKOFF", "2"))
 
         watcher = SMSInboxWatcher(
