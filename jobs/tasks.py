@@ -4,7 +4,7 @@ from celery import shared_task
 from django.conf import settings
 from .mattermost_client import MattermostClient
 from .youtrack_client import YouTrackClient
-from .utils import parse_message, read_gammu_file
+from .utils import parse_message
 from .locks import task_lock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -32,7 +32,6 @@ def sms_watch(self):
             
         inbox = os.getenv("INBOX_DIR", "/var/spool/gammu/inbox")
         processed = os.getenv("PROCESSED_DIR", "/var/spool/gammu/processed")
-        loop_interval = int(os.getenv("LOOP_INTERVAL", "60"))
         sleep_between = float(os.getenv("SLEEP_BETWEEN_FILES", "0.5"))
         max_per_iter = int(os.getenv("MAX_PER_ITERATION", "50"))
         error_backoff = float(os.getenv("ERROR_BACKOFF", "2"))
@@ -102,10 +101,6 @@ def sms_watch(self):
         return {"found": found, "created": created}
         
         
-        
-
-
-
 @shared_task(bind=True, name="jobs.sent_new_events_to_mattermost")
 def sent_new_events_to_mattermost(self) -> str:
     with task_lock("lock:jobs.sent_new_events_to_mattermost", timeout=300) as acquired:
