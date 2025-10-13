@@ -2,6 +2,7 @@ import os, re, shutil, time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional, List, Union
+import chardet
 
 @dataclass
 class SMSMessage:
@@ -36,12 +37,32 @@ class SMSInboxWatcher:
         self.processed_dir.mkdir(parents=True, exist_ok=True)
 
     def _read_text(self, path: Path) -> str:
-        """Читает текст с автоопределением кодировки"""
+        """Читает текст с автоопределением кодировки через chardet"""
+        # Сначала пробуем автоопределение
+        try:
+            raw_data = path.read_bytes()
+            detected = chardet.detect(raw_data)
+            
+            if detected and detected['encoding']:
+                encoding = detected['encoding']
+                confidence = detected.get('confidence', 0)
+                
+                # Если уверенность > 70%, используем определённую кодировку
+                if confidence > 0.7:
+                    try:
+                        text = raw_data.decode(encoding).strip()
+                        print(f"[INFO] Файл {path.name}: кодировка {encoding} (confidence: {confidence:.2f})")
+                        return text
+                    except (UnicodeDecodeError, LookupError):
+                        print(f"[WARN] Не удалось декодировать с {encoding}, пробуем вручную")
+        except Exception as e:
+            print(f"[ERR] Ошибка chardet для {path.name}: {e}")
+        
+        # Если автоопределение не сработало, пробуем вручную
         for enc in self.encodings:
             try:
                 text = path.read_text(encoding=enc, errors="strict").strip()
-                # Проверяем, что в тексте нет знаков вопроса (ошибки декодирования)
-                if text and '�' not in text:
+                if text and '�' not in text and '?' * 3 not in text:
                     print(f"[DEBUG] Файл {path.name} прочитан с кодировкой {enc}")
                     return text
             except (UnicodeDecodeError, UnicodeError, LookupError):
