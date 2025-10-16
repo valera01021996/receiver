@@ -1,5 +1,5 @@
 import logging
-from alerts.models import Events
+from alerts.models import Events, AlertDescription
 from celery import shared_task
 from django.conf import settings
 from .mattermost_client import MattermostClient
@@ -128,6 +128,17 @@ def sent_new_events_to_mattermost(self) -> str:
                     log.warning("Event id = %s: parse_message returned %r — skipping. Text: %r", ev_id, parsed, sms_text)
                     continue
                 alertname, instance, summary, startsat, severity = parsed
+                
+                # Ищем описание в БД по alertname (заменяем испорченную кириллицу)
+                try:
+                    alert_desc = AlertDescription.objects.filter(alertname=alertname).first()
+                    if alert_desc:
+                        summary = alert_desc.description  # Заменяем на описание из БД
+                        log.info("Event id = %s: используем описание из БД для '%s'", ev_id, alertname)
+                    else:
+                        log.info("Event id = %s: описание для '%s' не найдено в БД, используем из SMS", ev_id, alertname)
+                except Exception as e:
+                    log.error("Event id = %s: ошибка при поиске описания: %s", ev_id, e)
 
                 startsat = add5h_keep_utc(startsat)
 

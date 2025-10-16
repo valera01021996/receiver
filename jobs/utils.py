@@ -12,7 +12,7 @@ class Alert(NamedTuple):
 def parse_message(text: str) -> Optional[Alert]:
     try:
         parts = [part.strip() for part in text.split('|')]
-        if len(parts) != 5:
+        if len(parts) != 4:
             return None
 
         return Alert(*parts)
