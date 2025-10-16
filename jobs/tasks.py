@@ -68,11 +68,11 @@ def sms_watch(self):
                     log.warning("Text too short (%d chars) — skip: %s", len(text.strip()), msg.filename)
                     continue
                 
-                # Проверка формата: должно быть ровно 5 полей через разделитель |
-                # Формат: alertname|instance|summary|startsat|severity
+                # Проверка формата: должно быть ровно 4 поля через разделитель |
+                # Формат: alertname|instance|startsat|severity (summary берётся из БД!)
                 parts = text.strip().split('|')
-                if len(parts) != 5:
-                    log.warning("Invalid format (%d fields, expected 5) — skip: %s. Text: '%s...'", 
+                if len(parts) != 4:
+                    log.warning("Invalid format (%d fields, expected 4) — skip: %s. Text: '%s...'", 
                                 len(parts), msg.filename, text[:150])
                     continue
                 provisional_post_id = f"smsfile:{phone}:{msg.filename}"
@@ -124,21 +124,26 @@ def sent_new_events_to_mattermost(self) -> str:
                     continue
 
                 parsed = parse_message(sms_text)
-                if not parsed or len(parsed) != 5:
+                if not parsed or len(parsed) != 4:
                     log.warning("Event id = %s: parse_message returned %r — skipping. Text: %r", ev_id, parsed, sms_text)
                     continue
-                alertname, instance, summary, startsat, severity = parsed
+                alertname, instance, startsat, severity = parsed
                 
-                # Ищем описание в БД по alertname (заменяем испорченную кириллицу)
+                # Summary ВСЕГДА берём из БД (обязательно!)
+                summary = None
                 try:
                     alert_desc = AlertDescription.objects.filter(alertname=alertname).first()
                     if alert_desc:
-                        summary = alert_desc.description  # Заменяем на описание из БД
+                        summary = alert_desc.description
                         log.info("Event id = %s: используем описание из БД для '%s'", ev_id, alertname)
                     else:
-                        log.info("Event id = %s: описание для '%s' не найдено в БД, используем из SMS", ev_id, alertname)
+                        # Если нет в БД - используем дефолтное описание
+                        summary = f"Alert: {alertname}"
+                        log.warning("Event id = %s: описание для '%s' не найдено в БД! Используем дефолтное: '%s'", 
+                                   ev_id, alertname, summary)
                 except Exception as e:
-                    log.error("Event id = %s: ошибка при поиске описания: %s", ev_id, e)
+                    summary = f"Alert: {alertname}"
+                    log.error("Event id = %s: ошибка при поиске описания: %s. Используем дефолтное", ev_id, e)
 
                 startsat = add5h_keep_utc(startsat)
 

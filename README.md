@@ -123,19 +123,41 @@ chacksecurity = 0
 
 ## 📱 Формат SMS
 
-Ожидается формат: `alertname|instance|summary|startsat|severity`
+Ожидается формат: `alertname|instance|startsat|severity` (4 поля)
 
 **Пример:**
 ```
-Test27|test-server-02|Warning test alert from curl|2025-10-10T05:48:52.000Z|warning
+HostSystemdServiceCrashed|10.10.147.13:9100|2025-10-11T10:52:30.000Z|warning
 ```
 
 **Поля:**
-- `alertname` - название алерта
+- `alertname` - название алерта (ключ для поиска описания в БД)
 - `instance` - сервер/хост
-- `summary` - описание проблемы
 - `startsat` - время начала (ISO 8601)
 - `severity` - уровень критичности
+
+**⚠️ Важно:** 
+- `summary` (описание) **НЕ передаётся в SMS!**
+- Описание берётся из БД по `alertname`
+- Это решает проблему с кириллицей в SMS
+
+### Настройка описаний
+
+1. Войдите в админку: `http://your-domain/admin/`
+2. Перейдите в **Alerts → Alert descriptions**
+3. Добавьте соответствие:
+   - Alert Name: `HostSystemdServiceCrashed`
+   - Описание: `Упал системный сервис на сервере`
+
+Или через shell:
+```python
+from alerts.models import AlertDescription
+
+AlertDescription.objects.create(
+    alertname='HostSystemdServiceCrashed',
+    description='Упал системный сервис cdr_generator.service на сервере'
+)
+```
 
 ## 🔧 Управление сервисами
 
