@@ -124,17 +124,29 @@ class ATSmsReceiver:
                     log.debug("SMS %d header: %s", index, line)
                     
                     # Пробуем разные варианты извлечения номера
-                    # Вариант 1: "+998..." или "998..."
+                    # Вариант 1: Обычный формат "+998..." или "998..."
                     match = re.search(r'"(\+?\d{7,})"', line)
                     if match:
                         phone = match.group(1)
                         log.debug("SMS %d: извлечён номер (вариант 1): %s", index, phone)
                     else:
-                        # Вариант 2: без кавычек (некоторые модемы)
-                        match = re.search(r',(\+?\d{7,}),', line)
+                        # Вариант 2: UCS2/UTF-16BE hex формат (002B0039...)
+                        match = re.search(r'"([0-9A-F]{20,})"', line, re.IGNORECASE)
                         if match:
-                            phone = match.group(1)
-                            log.debug("SMS %d: извлечён номер (вариант 2): %s", index, phone)
+                            hex_phone = match.group(1)
+                            try:
+                                # Декодируем UCS2 (UTF-16BE)
+                                phone_bytes = bytes.fromhex(hex_phone)
+                                phone = phone_bytes.decode('utf-16-be', errors='replace')
+                                log.debug("SMS %d: извлечён номер из UCS2: %s", index, phone)
+                            except Exception as e:
+                                log.warning("SMS %d: не удалось декодировать UCS2 номер: %s", index, e)
+                        else:
+                            # Вариант 3: без кавычек
+                            match = re.search(r',(\+?\d{7,}),', line)
+                            if match:
+                                phone = match.group(1)
+                                log.debug("SMS %d: извлечён номер (вариант 3): %s", index, phone)
                     
                     # Извлекаем timestamp
                     parts = line.split(',')
@@ -185,14 +197,17 @@ class ATSmsReceiver:
             return False
     
     def _decode_ucs2_if_needed(self, text: str) -> str:
-        """Декодирование UCS2 (если модем вернул в hex формате)"""
+        """Декодирование UCS2/UTF-16BE (если модем вернул в hex формате)"""
         # Если текст выглядит как hex (0041004200...), декодируем
-        if re.match(r'^[0-9A-Fa-f]+$', text) and len(text) % 4 == 0:
+        if re.match(r'^[0-9A-Fa-f]+$', text.replace('\n', '').replace(' ', '')) and len(text.replace('\n', '').replace(' ', '')) % 4 == 0:
             try:
-                bytes_data = bytes.fromhex(text)
-                return bytes_data.decode('utf-16-be', errors='replace')
+                clean_hex = text.replace('\n', '').replace(' ', '')
+                bytes_data = bytes.fromhex(clean_hex)
+                decoded = bytes_data.decode('utf-16-be', errors='replace')
+                log.debug("Декодирован UCS2 текст: %s...", decoded[:100])
+                return decoded
             except Exception as e:
-                log.warning("Не удалось декодировать UCS2: %s", e)
+                log.warning("Не удалось декодировать UCS2 текст: %s", e)
                 return text
         return text
     
