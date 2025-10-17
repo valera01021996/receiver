@@ -5,64 +5,57 @@
 ## 🏗️ Архитектура
 
 ```
-SMS → Gammu (на хосте) → /var/spool/gammu/inbox/ → Docker Worker → Events (БД) → YouTrack + Mattermost
+SMS → Модем (/dev/ttyUSB0) → Pyserial (AT команды) → Docker Worker → Events (БД) → YouTrack + Mattermost
 ```
 
-## 🚀 Быстрое развёртывание на новом сервере
+**Ключевые особенности:**
+- Прямое чтение SMS с модема через AT команды (pyserial)
+- Без Gammu - проще и надёжнее
+- Summary с кириллицей хранится в БД (не передаётся в SMS)
+- Автоматическое создание тикетов и уведомлений
 
-### Автоматическое развёртывание
+## 🚀 Быстрое развёртывание
+
+### Автоматическое
 
 ```bash
 # 1. Клонируйте репозиторий
-git clone <your-repo-url>
+git clone <your-repo>
 cd django-api
 
 # 2. Настройте окружение
 cp env.example .env
 nano .env  # Отредактируйте переменные
 
-# 3. Запустите автоматическое развёртывание
+# 3. Запустите развёртывание
 chmod +x deploy.sh
 ./deploy.sh
 ```
 
-Скрипт `deploy.sh` автоматически:
-- Обновит систему
-- Установит Docker и Docker Compose
-- Установит и настроит Gammu
-- Создаст все необходимые папки и конфигурации
-- Проверит модем
-- Запустит все сервисы
-
-### Ручное развёртывание
-
-Если нужен больший контроль, выполните шаги вручную:
+### Ручное
 
 ```bash
-# 1. Установка зависимостей
+# 1. Установка Docker
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y docker.io docker-compose gammu python3-gammu
+sudo apt install -y docker.io docker-compose
 
-# 2. Настройка Gammu
-sudo useradd -r -s /bin/false -d /var/spool/gammu gammu
-sudo mkdir -p /var/spool/gammu/{inbox,processed,sent,outbox,error}
-sudo chown -R gammu:gammu /var/spool/gammu
+# 2. Настройка окружения
+cp env.example .env
+nano .env
 
-# 3. Конфигурация Gammu (скопируйте из deploy.sh)
-sudo cp gammu-configs/gammurc /etc/gammurc
-sudo cp gammu-configs/gammu-smsdrc /etc/gammu-smsdrc
-
-# 4. Запуск сервисов
-sudo systemctl enable gammu-smsd
-sudo systemctl start gammu-smsd
+# 3. Запуск
 docker compose up -d --build
+
+# 4. Миграции
+docker compose exec web python manage.py migrate
+
+# 5. Создание суперпользователя
+docker compose exec web python manage.py createsuperuser
 ```
 
 ## ⚙️ Конфигурация
 
 ### Переменные окружения (.env)
-
-Обязательные переменные:
 
 ```bash
 # Mattermost
@@ -79,77 +72,75 @@ YOUTRACK_PROJECT=YOUR-PROJECT
 # SMS фильтрация
 ALLOWED_NUMBER=+998937552558
 ALLOWED_ACK_USER_IDS=user1,user2,user3
-```
 
-### Gammu конфигурация
-
-**`/etc/gammurc`** - основная конфигурация:
-```ini
-[gammu]
-device = /dev/ttyUSB0
-connection = at115200
-```
-
-**`/etc/gammu-smsdrc`** - конфигурация SMS daemon:
-```ini
-[gammu]
-port = /dev/ttyUSB0
-connection = at115200
-
-[smsd]
-service = files
-logfile = /var/log/gammu-smsd.log
-debuglevel = 1
-
-inboxpath = /var/spool/gammu/inbox/
-outboxpath = /var/spool/gammu/outbox/
-sentsmspath = /var/spool/gammu/sent/
-errorsmspath = /var/spool/gammu/error/
-
-chacksecurity = 0
+# Модем (pyserial)
+MODEM_PORT=/dev/ttyUSB0
+MODEM_BAUDRATE=115200
+MAX_SMS_PER_ITERATION=10
 ```
 
 ## 📊 Поток данных
 
-1. **Gammu smsd** (на хосте) получает SMS и сохраняет в `/var/spool/gammu/inbox/`
-2. **Celery worker** (`jobs.sms_watch`) каждые 2 минуты:
-   - Сканирует папку inbox
-   - Создаёт записи `Events` в БД
-   - Перемещает файлы в `processed/`
-3. **Celery worker** (`jobs.sent_new_events_to_mattermost`) каждые 2 минуты:
-   - Обрабатывает `Events(status=new)`
-   - Создаёт тикеты в YouTrack
-   - Отправляет алерты в Mattermost
+### 1. Чтение SMS (каждые 2 минуты)
+
+```python
+jobs.read_sms_from_modem:
+  ├─ Подключается к модему через pyserial
+  ├─ AT+CMGL="REC UNREAD" → список непрочитанных
+  ├─ AT+CMGR=1 → чтение SMS #1
+  ├─ Проверка формата (4 поля через |)
+  ├─ Создание Events(status=NEW) в БД
+  └─ AT+CMGD=1 → удаление SMS с модема
+```
+
+### 2. Отправка в YouTrack/Mattermost (каждые 2 минуты)
+
+```python
+jobs.sent_new_events_to_mattermost:
+  ├─ SELECT * FROM Events WHERE status='NEW'
+  ├─ Parse: alertname|instance|startsat|severity
+  ├─ Поиск description в AlertDescription по alertname
+  ├─ POST YouTrack API → создание тикета
+  ├─ POST Mattermost API → создание алерта с кнопкой ACK
+  └─ UPDATE Events SET status='SENT'
+```
 
 ## 📱 Формат SMS
 
-Ожидается формат: `alertname|instance|startsat|severity` (4 поля)
+**Новый формат (4 поля):**
+```
+alertname|instance|startsat|severity
+```
 
 **Пример:**
 ```
-HostSystemdServiceCrashed|10.10.147.13:9100|2025-10-11T10:52:30.000Z|warning
+HostSystemdServiceCrashed|10.10.147.13:9100|2025-10-13T10:00:00.000Z|warning
 ```
 
 **Поля:**
-- `alertname` - название алерта (ключ для поиска описания в БД)
+- `alertname` - ключ для поиска описания в БД
 - `instance` - сервер/хост
 - `startsat` - время начала (ISO 8601)
 - `severity` - уровень критичности
 
-**⚠️ Важно:** 
-- `summary` (описание) **НЕ передаётся в SMS!**
-- Описание берётся из БД по `alertname`
-- Это решает проблему с кириллицей в SMS
+**⚠️ Важно:** Summary НЕ передаётся в SMS! Берётся из БД.
 
 ### Настройка описаний
 
-1. Войдите в админку: `http://your-domain/admin/`
-2. Перейдите в **Alerts → Alert descriptions**
-3. Добавьте соответствие:
-   - Alert Name: `HostSystemdServiceCrashed`
-   - Описание: `Упал системный сервис на сервере`
+**Через админку:**
+```
+http://your-domain/admin/alerts/alertdescription/
 
-Или через shell:
+Добавить:
+  Alert Name: HostSystemdServiceCrashed
+  Описание: Упал системный сервис cdr_generator.service
+```
+
+**Через shell:**
+```bash
+docker compose exec web python manage.py shell
+```
+
 ```python
 from alerts.models import AlertDescription
 
@@ -159,7 +150,7 @@ AlertDescription.objects.create(
 )
 ```
 
-## 🔧 Управление сервисами
+## 🔧 Управление
 
 ### Docker
 
@@ -168,180 +159,202 @@ AlertDescription.objects.create(
 docker compose ps
 
 # Логи
-docker compose logs -f worker    # SMS обработка
+docker compose logs -f worker    # Чтение SMS и обработка
 docker compose logs -f web       # Веб-сервер
 docker compose logs -f beat      # Планировщик
 
 # Перезапуск
 docker compose restart worker beat
-docker compose down && docker compose up -d
 ```
-
-### Gammu на хосте
-
-```bash
-# Статус
-sudo systemctl status gammu-smsd
-
-# Логи
-sudo journalctl -u gammu-smsd -f
-
-# Проверка модема
-gammu --config /etc/gammurc --identify
-
-# Управление
-sudo systemctl start gammu-smsd
-sudo systemctl stop gammu-smsd
-sudo systemctl restart gammu-smsd
-```
-
-## 🧪 Тестирование
 
 ### Проверка модема
 
 ```bash
-# Проверка подключения
-gammu --config /etc/gammurc --identify
-
-# Проверка сигнала
-gammu --config /etc/gammurc --signalquality
+# Из контейнера worker
+docker compose exec worker python -c "
+from jobs.sms_receiver import ATSmsReceiver
+r = ATSmsReceiver()
+if r.connect():
+    print('Модем подключён:')
+    print(r.get_modem_info())
+    r.disconnect()
+"
 ```
 
-### Тестирование SMS
+### Проверка доступа к модему
 
 ```bash
-# Создание тестового SMS файла
-echo "Test27|test-server-02|Test alert|2025-10-10T05:48:52.000Z|warning" > /var/spool/gammu/inbox/test.txt
+# На хосте
+ls -la /dev/ttyUSB*
 
-# Мониторинг обработки
-watch -n 1 'ls -la /var/spool/gammu/inbox/'
-watch -n 1 'ls -la /var/spool/gammu/processed/'
+# В контейнере
+docker compose exec worker ls -la /dev/ttyUSB*
 ```
 
-### Проверка логов
+## 🧪 Тестирование
+
+### 1. Проверка модема
 
 ```bash
-# Логи воркера (обработка SMS)
+docker compose exec worker python manage.py shell
+```
+
+```python
+from jobs.sms_receiver import ATSmsReceiver
+
+receiver = ATSmsReceiver(port="/dev/ttyUSB0", baudrate=115200)
+receiver.connect()
+
+# Информация о модеме
+print(receiver.get_modem_info())
+
+# Список SMS
+indices = receiver.list_unread_sms()
+print(f"Непрочитанных SMS: {len(indices)}")
+
+# Прочитать первую SMS
+if indices:
+    sms = receiver.read_sms(indices[0])
+    print(f"Номер: {sms.phone}")
+    print(f"Текст: {sms.text}")
+
+receiver.disconnect()
+```
+
+### 2. Тестовый SMS
+
+Отправьте SMS на модем в формате:
+```
+TestAlert|test-server|2025-10-13T10:00:00.000Z|warning
+```
+
+Проверьте логи:
+```bash
 docker compose logs -f worker | grep "CREATED Event"
+```
 
-# Логи Gammu
-sudo journalctl -u gammu-smsd -f
+### 3. Проверка БД
 
-# Проверка БД
+```bash
 docker compose exec web python manage.py shell
->>> from alerts.models import Events
->>> Events.objects.all().count()
+```
+
+```python
+from alerts.models import Events
+
+# Все события
+Events.objects.all()
+
+# Только новые
+Events.objects.filter(status='new')
+
+# Отправленные
+Events.objects.filter(status='sent')
 ```
 
 ## 🐛 Устранение неполадок
 
-### SMS не обрабатываются
+### SMS не читаются
 
-1. **Проверьте Gammu:**
+1. **Проверьте модем:**
    ```bash
-   sudo systemctl status gammu-smsd
-   sudo journalctl -u gammu-smsd -f
+   ls -la /dev/ttyUSB*
+   docker compose exec worker ls -la /dev/ttyUSB*
    ```
 
-2. **Проверьте файлы:**
+2. **Проверьте логи:**
    ```bash
-   ls -la /var/spool/gammu/inbox/
-   ls -la /var/spool/gammu/processed/
+   docker compose logs worker | grep "reading SMS from modem"
    ```
 
-3. **Проверьте воркер:**
+3. **Проверьте права:**
    ```bash
-   docker compose logs worker | grep "Start SMS watching"
+   # В docker-compose.yml должно быть:
+   privileged: true
+   devices:
+     - /dev/ttyUSB0:/dev/ttyUSB0
    ```
 
 ### Ошибки парсинга
 
-1. **Проверьте формат SMS** - должно быть 5 полей через `|`
-2. **Проверьте `ALLOWED_NUMBER`** в .env
-3. **Проверьте длину текста** - минимум 10 символов
+1. Проверьте формат SMS (4 поля через `|`)
+2. Проверьте ALLOWED_NUMBER в .env
+3. Проверьте минимальную длину (20 символов)
 
-### Проблемы с интеграциями
+### Описания не применяются
 
-1. **Mattermost:**
-   - Проверьте токен и URL
-   - Убедитесь, что бот добавлен в канал
-   - Проверьте права бота
-
-2. **YouTrack:**
-   - Проверьте токен и URL
-   - Убедитесь, что проект существует
-   - Проверьте права пользователя
-
-### Проблемы с модемом
-
-1. **Устройство не найдено:**
+1. **Добавьте описания в БД:**
    ```bash
-   ls -la /dev/ttyUSB*
-   ls -la /dev/serial/by-id/
+   docker compose exec web python manage.py shell
+   ```
+   
+   ```python
+   from alerts.models import AlertDescription
+   AlertDescription.objects.create(
+       alertname='YourAlertName',
+       description='Описание на русском'
+   )
    ```
 
-2. **Неправильный порт:**
-   - Отредактируйте `/etc/gammurc` и `/etc/gammu-smsdrc`
-   - Перезапустите: `sudo systemctl restart gammu-smsd`
-
-3. **Модем занят:**
+2. **Проверьте логи:**
    ```bash
-   sudo lsof /dev/ttyUSB0
-   sudo killall gammu-smsd
+   docker compose logs worker | grep "используем описание"
    ```
+
+### Модем занят
+
+```bash
+# Проверьте, что модем не используется другим процессом
+sudo lsof /dev/ttyUSB0
+
+# Убейте процессы, если нужно
+sudo killall python
+docker compose restart worker
+```
 
 ## 📁 Структура проекта
 
 ```
-├── alerts/              # Django модели событий
-├── jobs/                # Celery задачи и SMS watcher
+├── alerts/              # Django модели (Events, AlertDescription)
+├── jobs/                # Celery задачи
+│   ├── sms_receiver.py  # SMS receiver через pyserial
+│   ├── tasks.py         # Celery задачи
+│   ├── utils.py         # Парсинг SMS
+│   └── ...
 ├── core/                # Настройки Django
-├── docker/              # Docker конфигурация
-├── docker-compose.yml   # Оркестрация контейнеров
+├── docker-compose.yml   # Оркестрация
 ├── deploy.sh            # Автоматическое развёртывание
-├── env.example          # Пример конфигурации
 └── README.md            # Эта документация
 ```
 
 ## 🔒 Безопасность
 
-### Продакшен
-
-1. **Отключите DEBUG:**
-   ```bash
-   # В .env
-   DEBUG=False
-   ```
-
-2. **Используйте сильные пароли:**
-   ```bash
-   POSTGRES_PASSWORD=your-strong-password
-   ```
-
-3. **Ограничьте доступ к вебхуку:**
-   - Настройте IP whitelist в Nginx
-   - Используйте HTTPS
-
-4. **Регулярно обновляйте:**
-   ```bash
-   sudo apt update && sudo apt upgrade
-   docker compose pull && docker compose up -d
-   ```
+1. **Отключите DEBUG в .env**
+2. **Используйте сильные пароли для БД**
+3. **Ограничьте доступ к вебхуку (IP whitelist)**
+4. **Регулярно обновляйте зависимости**
 
 ## 📞 Поддержка
 
-При возникновении проблем:
+### Диагностика
 
-1. Проверьте логи всех сервисов
-2. Убедитесь в правильности конфигурации
-3. Проверьте доступность интеграций (Mattermost/YouTrack)
-4. Убедитесь в работоспособности модема
-
-**Полезные команды для диагностики:**
 ```bash
 # Полная диагностика
-sudo systemctl status gammu-smsd
 docker compose ps
 docker compose logs worker | tail -50
-ls -la /var/spool/gammu/inbox/
+docker compose exec worker python -c "from jobs.sms_receiver import ATSmsReceiver; r=ATSmsReceiver(); r.connect(); print(r.get_modem_info())"
 ```
+
+### Часто задаваемые вопросы
+
+**Q: Почему используется pyserial вместо Gammu?**
+A: Gammu имел проблемы с кодировкой кириллицы. Pyserial дает прямой контроль над модемом.
+
+**Q: Как добавить описание для нового алерта?**
+A: Через админку Django (`/admin/alerts/alertdescription/`) или через shell.
+
+**Q: Что если модем не на /dev/ttyUSB0?**
+A: Измените MODEM_PORT в .env и в docker-compose.yml devices.
+
+**Q: Как часто проверяются SMS?**
+A: Каждые 2 минуты (настраивается в `core/celery.py`).

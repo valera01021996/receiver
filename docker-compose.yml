@@ -45,22 +45,20 @@ services:
     env_file: .env
     environment:
       ROLE: worker
-      # Настройки для SMS watcher
-      INBOX_DIR: /var/spool/gammu/inbox
-      PROCESSED_DIR: /var/spool/gammu/processed
-      LOOP_INTERVAL: 60
-      SLEEP_BETWEEN_FILES: 0.5
-      MAX_PER_ITERATION: 50
-      ERROR_BACKOFF: 2
+      # Настройки для чтения SMS через pyserial
+      MODEM_PORT: /dev/ttyUSB0
+      MODEM_BAUDRATE: 115200
+      MAX_SMS_PER_ITERATION: 10
     depends_on:
       - postgres
       - redis
     networks: [appnet]
-    # Gammu работает на хосте, поэтому доступ к /dev не нужен
-    volumes:
-      # Монтируем папки Gammu с хоста для SMS watcher
-      - /var/spool/gammu/inbox:/var/spool/gammu/inbox
-      - /var/spool/gammu/processed:/var/spool/gammu/processed
+    # Доступ к модему для чтения SMS через pyserial
+    privileged: true
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/ttyUSB1:/dev/ttyUSB1
+      - /dev/serial/by-id:/dev/serial/by-id
     restart: always
 
   beat:

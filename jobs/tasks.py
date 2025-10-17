@@ -9,7 +9,7 @@ from .locks import task_lock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import os
-from .sms_watcher import SMSInboxWatcher
+from .sms_receiver import ATSmsReceiver
 from .choises import Status
 
 log = logging.getLogger(__name__)
@@ -23,82 +23,101 @@ def add5h_keep_utc(text_iso_z):
 
 
 
-@shared_task(bind=True, name="jobs.sms_watch")
-def sms_watch(self):
-    with task_lock("lock:jobs.sms_watch", timeout=300) as acquired:
+@shared_task(bind=True, name="jobs.read_sms_from_modem")
+def read_sms_from_modem(self):
+    """Читает SMS напрямую с модема через AT команды (pyserial)"""
+    with task_lock("lock:jobs.read_sms_from_modem", timeout=300) as acquired:
         if not acquired:
-            log.info("Skip sms_watch: already running")
+            log.info("Skip read_sms_from_modem: already running")
             return {"found": 0, "created": 0, "skipped": True}
-            
-        inbox = os.getenv("INBOX_DIR", "/var/spool/gammu/inbox")
-        processed = os.getenv("PROCESSED_DIR", "/var/spool/gammu/processed")
-        sleep_between = float(os.getenv("SLEEP_BETWEEN_FILES", "0.5"))
-        max_per_iter = int(os.getenv("MAX_PER_ITERATION", "10"))
-        error_backoff = float(os.getenv("ERROR_BACKOFF", "2"))
-
-        watcher = SMSInboxWatcher(
-            inbox_dir=inbox,
-            processed_dir=processed,
-            sleep_between_files=sleep_between,
-            max_per_iteration=max_per_iter,
-            error_backoff=error_backoff,
-        )
-
-        msgs = watcher.process_once()
-        found = len(msgs)
-        created = 0
-        log.info("Start SMS watching (task_id=%s). Found %d messages", self.request.id, found)
         
-        for msg in msgs:
-            try:
-                phone = msg.phone
-                # Нормализуем номера для сравнения (убираем все нецифровые символы)
-                phone_normalized = ''.join(filter(str.isdigit, phone))
-                allowed_normalized = ''.join(filter(str.isdigit, settings.ALLOWED_NUMBER or ''))
-                
-                if settings.ALLOWED_NUMBER and phone_normalized != allowed_normalized:
-                    log.warning("Untrusted phone %s (normalized: %s) — skip: %s (allowed: %s, normalized: %s)", 
-                                phone, phone_normalized, msg.filename, settings.ALLOWED_NUMBER, allowed_normalized)
-                    continue
+        modem_port = os.getenv("MODEM_PORT", "/dev/ttyUSB0")
+        baudrate = int(os.getenv("MODEM_BAUDRATE", "115200"))
+        max_sms = int(os.getenv("MAX_SMS_PER_ITERATION", "10"))
+        
+        receiver = ATSmsReceiver(port=modem_port, baudrate=baudrate)
+        
+        try:
+            # Подключаемся к модему
+            if not receiver.connect():
+                log.error("Не удалось подключиться к модему на %s", modem_port)
+                return {"found": 0, "created": 0, "error": "connection_failed"}
+            
+            # Получаем список непрочитанных SMS
+            unread_indices = receiver.list_unread_sms()
+            found = len(unread_indices)
+            created = 0
+            
+            log.info("Start reading SMS from modem (task_id=%s). Found %d unread SMS", self.request.id, found)
+            
+            # Ограничиваем количество обрабатываемых SMS
+            indices_to_process = unread_indices[:max_sms]
+            
+            for index in indices_to_process:
+                try:
+                    # Читаем SMS с модема
+                    sms = receiver.read_sms(index)
+                    if not sms:
+                        log.warning("SMS index %d: не удалось прочитать", index)
+                        continue
                     
-                text = msg.text
-                
-                # Базовая валидация
-                if len(text.strip()) < 20:
-                    log.warning("Text too short (%d chars) — skip: %s", len(text.strip()), msg.filename)
-                    continue
-                
-                # Проверка формата: должно быть ровно 4 поля через разделитель |
-                # Формат: alertname|instance|startsat|severity (summary берётся из БД!)
-                parts = text.strip().split('|')
-                if len(parts) != 4:
-                    log.warning("Invalid format (%d fields, expected 4) — skip: %s. Text: '%s...'", 
-                                len(parts), msg.filename, text[:150])
-                    continue
-                provisional_post_id = f"smsfile:{phone}:{msg.filename}"
-                
-                obj, is_created = Events.objects.get_or_create(
-                    post_id=provisional_post_id,
-                    defaults={
-                        "issue_id": None,
-                        "status": Status.NEW,
-                        "acked_by": None,
-                        "sms_text": text,
-                    }
-                )
-                obj.save()
-                
-                if is_created:
-                    created += 1
-                    log.info("✅ CREATED Event #%d from %s (post_id=%s)", created, msg.filename, provisional_post_id)
-                else:
-                    log.info("Event exists for %s (post_id=%s) — skip", msg.filename, provisional_post_id)
+                    # Проверка разрешённого номера
+                    phone_normalized = ''.join(filter(str.isdigit, sms.phone))
+                    allowed_normalized = ''.join(filter(str.isdigit, settings.ALLOWED_NUMBER or ''))
                     
-            except Exception:
-                log.exception("Failed to process %s", msg.filename)
-                
-        log.info("Done. Created: %d / Total seen: %d", created, found)
-        return {"found": found, "created": created}
+                    if settings.ALLOWED_NUMBER and phone_normalized != allowed_normalized:
+                        log.warning("Untrusted phone %s (normalized: %s) — skip SMS index %d (allowed: %s)", 
+                                   sms.phone, phone_normalized, index, settings.ALLOWED_NUMBER)
+                        receiver.delete_sms(index)  # Удаляем неразрешённые
+                        continue
+                    
+                    # Базовая валидация
+                    if len(sms.text.strip()) < 20:
+                        log.warning("Text too short (%d chars) — skip SMS index %d", len(sms.text.strip()), index)
+                        receiver.delete_sms(index)
+                        continue
+                    
+                    # Проверка формата: должно быть ровно 4 поля
+                    # Формат: alertname|instance|startsat|severity
+                    parts = sms.text.strip().split('|')
+                    if len(parts) != 4:
+                        log.warning("Invalid format (%d fields, expected 4) — skip SMS index %d. Text: '%s...'", 
+                                   len(parts), index, sms.text[:150])
+                        receiver.delete_sms(index)
+                        continue
+                    
+                    # Создаём Event в БД
+                    provisional_post_id = f"sms:{sms.phone}:{sms.timestamp}:{index}"
+                    
+                    obj, is_created = Events.objects.get_or_create(
+                        post_id=provisional_post_id,
+                        defaults={
+                            "issue_id": None,
+                            "status": Status.NEW,
+                            "acked_by": None,
+                            "sms_text": sms.text.strip(),
+                        }
+                    )
+                    obj.save()
+                    
+                    if is_created:
+                        created += 1
+                        log.info("✅ CREATED Event #%d from SMS index %d (phone: %s, post_id=%s)", 
+                                created, index, sms.phone, provisional_post_id)
+                    else:
+                        log.info("Event exists for SMS index %d (post_id=%s) — skip", index, provisional_post_id)
+                    
+                    # Удаляем обработанную SMS из модема
+                    receiver.delete_sms(index)
+                    
+                except Exception:
+                    log.exception("Failed to process SMS index %d", index)
+            
+            log.info("Done. Created: %d / Total seen: %d", created, found)
+            return {"found": found, "created": created}
+            
+        finally:
+            receiver.disconnect()
         
         
 @shared_task(bind=True, name="jobs.sent_new_events_to_mattermost")
