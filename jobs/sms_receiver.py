@@ -116,14 +116,27 @@ class ATSmsReceiver:
             text = ""
             timestamp = ""
             
+            # DEBUG: Логируем сырой ответ модема
+            log.debug("SMS %d raw response: %s", index, lines)
+            
             for i, line in enumerate(lines):
                 if line.startswith("+CMGR:"):
-                    # Извлекаем номер телефона
-                    match = re.search(r'"(\+?\d+)"', line)
+                    log.debug("SMS %d header: %s", index, line)
+                    
+                    # Пробуем разные варианты извлечения номера
+                    # Вариант 1: "+998..." или "998..."
+                    match = re.search(r'"(\+?\d{7,})"', line)
                     if match:
                         phone = match.group(1)
+                        log.debug("SMS %d: извлечён номер (вариант 1): %s", index, phone)
+                    else:
+                        # Вариант 2: без кавычек (некоторые модемы)
+                        match = re.search(r',(\+?\d{7,}),', line)
+                        if match:
+                            phone = match.group(1)
+                            log.debug("SMS %d: извлечён номер (вариант 2): %s", index, phone)
                     
-                    # Извлекаем timestamp (последнее поле в кавычках)
+                    # Извлекаем timestamp
                     parts = line.split(',')
                     if len(parts) >= 4:
                         timestamp = parts[-1].strip('"')
@@ -142,8 +155,11 @@ class ATSmsReceiver:
                 log.warning("SMS %d: пустой текст", index)
                 return None
             
-            # Декодирование UCS2 если нужно (Gammu делал это автоматически)
+            # Декодирование UCS2 если нужно
             text = self._decode_ucs2_if_needed(text)
+            
+            if phone == "Unknown":
+                log.warning("SMS %d: не удалось извлечь номер телефона из заголовка: %s", index, lines[0] if lines else "пустой ответ")
             
             log.info("SMS %d прочитан: phone=%s, text_len=%d", index, phone, len(text))
             
