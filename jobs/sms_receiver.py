@@ -40,6 +40,7 @@ class ATSmsReceiver:
             self._send_at("AT")                      # Проверка связи
             self._send_at("ATE0")                    # Выключаем эхо
             self._send_at("AT+CMEE=2")               # Verbose errors
+            self._send_at("AT+CNMI=0,0,0,0,0")       # Отключаем автоуведомления о новых SMS
             self._send_at('AT+CSCS="UCS2"')          # Unicode кодировка для заголовков
             self._send_at("AT+CMGF=1")               # Текстовый режим SMS
             self._send_at('AT+CPMS="SM","SM","SM"')  # Хранилище: SIM карта
@@ -95,6 +96,10 @@ class ATSmsReceiver:
             indices = []
             
             for line in lines:
+                # Пропускаем URC уведомления
+                if line.startswith("+CMTI:") or line.startswith("+CMT:") or line.startswith("+CDS:"):
+                    continue
+                
                 # Формат: +CMGL: 3,"REC UNREAD","+99890...",,"25/10/10,01:04:00+20"
                 if line.startswith("+CMGL:"):
                     match = re.match(r'\+CMGL:\s*(\d+)', line)
@@ -120,6 +125,11 @@ class ATSmsReceiver:
             log.debug("SMS %d raw response: %s", index, lines)
             
             for i, line in enumerate(lines):
+                # Фильтруем мусорные строки (URC уведомления)
+                if line.startswith("+CMTI:") or line.startswith("+CMT:") or line.startswith("+CDS:"):
+                    log.debug("SMS %d: пропускаем URC уведомление: %s", index, line)
+                    continue
+                
                 if line.startswith("+CMGR:"):
                     log.debug("SMS %d header: %s", index, line)
                     
