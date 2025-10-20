@@ -182,6 +182,7 @@ LOGGING = {
         'jobs': {
             'handlers': ['console'],
             'level': 'DEBUG',  # DEBUG уровень для jobs
+            'propagate': False,  # Не передавать логи в родительский логгер (избегаем дублирования)
         },
     },
 }
