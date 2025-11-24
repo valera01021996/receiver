@@ -31,7 +31,7 @@ def read_sms_from_modem(self):
             log.info("Skip read_sms_from_modem: already running")
             return {"found": 0, "created": 0, "skipped": True}
         
-        modem_port = os.getenv("MODEM_PORT", "/dev/ttyUSB1")
+        modem_port = os.getenv("MODEM_PORT", "/dev/ttyUSB0")
         baudrate = int(os.getenv("MODEM_BAUDRATE", "115200"))
         max_sms = int(os.getenv("MAX_SMS_PER_ITERATION", "10"))
         
