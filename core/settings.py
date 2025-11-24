@@ -20,7 +20,8 @@ USE_TZ = True
 
 MATTERMOST_URL = os.getenv('MATTERMOST_URL', '')
 MATTERMOST_TOKEN = os.getenv('MATTERMOST_TOKEN', '')
-CHANNEL_ID = os.getenv('CHANNEL_ID', '')
+CHANNEL_ID_RUBEJ = os.getenv('CHANNEL_ID_RUBEJ', '')
+CHANNEL_ID_EPU = os.getenv('CHANNEL_ID_EPU', '')
 
 YOUTRACK_URL = os.getenv('YOUTRACK_URL', '').rstrip('/')
 YOUTRACK_TOKEN = os.getenv('YOUTRACK_TOKEN', '')
@@ -30,9 +31,10 @@ ACK_URL = os.getenv('ACK_URL')
 ALLOWED_ACK_USER_IDS = os.getenv('ALLOWED_ACK_USER_IDS')
 GAMMU_SENT  = os.getenv("GAMMU_SENT",  "/var/spool/gammu/sent")
 SMS_PROCESS_DELAY = os.getenv("SMS_PROCESS_DELAY")
-
+MENTION_USERS_RUBEJ = os.getenv("MENTION_USERS_RUBEJ")
+MENTION_USERS_EPU = os.getenv("MENTION_USERS_EPU")
+# Fallback для других проектов
 MENTION_USERS = os.getenv("MENTION_USERS")
-
 GAMMU_INBOX = os.getenv("GAMMU_INBOX", "/var/spool/gammu/inbox")
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent

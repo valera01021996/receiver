@@ -10,7 +10,7 @@ class MattermostClient:
             "Authorization": f"Bearer {settings.MATTERMOST_TOKEN}",
             "Content-Type": "application/json",
         })
-        self.mention_users = settings.MENTION_USERS
+        # self.mention_users = settings.MENTION_USERS
 
     def post_alert(self,
                    channel_id: str,
@@ -22,7 +22,8 @@ class MattermostClient:
                    starts_at: str,
                    severity: str,
                    ack_url: Optional[str] = None,
-                   title: str = "mattermost-alertmanager"
+                   title: str = "mattermost-alertmanager",
+                   mention_users: Optional[str] = None
                    ) -> Dict[str, Any]:
         status_norm = status.strip().lower()
         color = "#e53935" if status_norm == "firing" else "#ff9800"
@@ -73,9 +74,10 @@ class MattermostClient:
         }
 
         parent_post = self._post("/api/v4/posts", json=body)
+        users_to_mention = mention_users or settings.MENTION_USERS
 
-        if parent_post and self.mention_users:
-            users = [u.lstrip('@') for u in re.split(r'[,\s]+', self.mention_users.strip()) if u]
+        if parent_post and users_to_mention:
+            users = [u.lstrip('@') for u in re.split(r'[,\s]+', users_to_mention.strip()) if u]
             if users:
                 mention_text = " ".join(f"@{u}" for u in users)
                 self._post("/api/v4/posts", json={

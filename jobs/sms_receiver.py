@@ -24,7 +24,7 @@ class SMSMessage:
 class ATSmsReceiver:
     """SMS receiver через AT команды напрямую с модема"""
     
-    def __init__(self, port: str = "/dev/ttyUSB0", baudrate: int = 115200, timeout: float = 2.0):
+    def __init__(self, port: str = "/dev/ttyUSB1", baudrate: int = 115200, timeout: float = 2.0):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout

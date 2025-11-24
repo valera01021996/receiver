@@ -5,7 +5,9 @@ class Alert(NamedTuple):
     alertname: str
     instance: str
     startsat: str
+    status: str
     severity: str
+    project: str
 
 
 def parse_message(text: str) -> Optional[Alert]:
@@ -14,8 +16,8 @@ def parse_message(text: str) -> Optional[Alert]:
     Summary теперь берётся из БД по alertname, не из SMS!
     """
     try:
-        parts = [part.strip() for part in text.split('|')]
-        if len(parts) != 4:
+        parts = [part.strip() for part in text.split('*')]
+        if len(parts) != 6:
             return None
 
         return Alert(*parts)

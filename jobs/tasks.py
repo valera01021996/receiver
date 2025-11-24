@@ -31,7 +31,7 @@ def read_sms_from_modem(self):
             log.info("Skip read_sms_from_modem: already running")
             return {"found": 0, "created": 0, "skipped": True}
         
-        modem_port = os.getenv("MODEM_PORT", "/dev/ttyUSB0")
+        modem_port = os.getenv("MODEM_PORT", "/dev/ttyUSB1")
         baudrate = int(os.getenv("MODEM_BAUDRATE", "115200"))
         max_sms = int(os.getenv("MAX_SMS_PER_ITERATION", "10"))
         
@@ -79,9 +79,9 @@ def read_sms_from_modem(self):
                     
                     # Проверка формата: должно быть ровно 4 поля
                     # Формат: alertname|instance|startsat|severity
-                    parts = sms.text.strip().split('|')
-                    if len(parts) != 4:
-                        log.warning("Invalid format (%d fields, expected 4) — skip SMS index %d. Text: '%s...'", 
+                    parts = sms.text.strip().split('*')
+                    if len(parts) != 6:
+                        log.warning("Invalid format (%d fields, expected 6) — skip SMS index %d. Text: '%s...'", 
                                    len(parts), index, sms.text[:150])
                         receiver.delete_sms(index)
                         continue
@@ -127,7 +127,8 @@ def sent_new_events_to_mattermost(self) -> str:
             log.info("Skip: task already running")
             return {"processed": 0, "skipped": True}
         ack_url = settings.ACK_URL
-        channel_id = settings.CHANNEL_ID
+        channel_id_rubej = settings.CHANNEL_ID_RUBEJ
+        channel_id_epu = settings.CHANNEL_ID_EPU
         yt_project = settings.YOUTRACK_PROJECT
 
         mm = MattermostClient()
@@ -143,10 +144,10 @@ def sent_new_events_to_mattermost(self) -> str:
                     continue
 
                 parsed = parse_message(sms_text)
-                if not parsed or len(parsed) != 4:
+                if not parsed or len(parsed) != 6:
                     log.warning("Event id = %s: parse_message returned %r — skipping. Text: %r", ev_id, parsed, sms_text)
                     continue
-                alertname, instance, startsat, severity = parsed
+                alertname, severity, status, instance, project, startsat = parsed
                 
                 # Summary ВСЕГДА берём из БД (обязательно!)
                 summary = None
@@ -176,29 +177,59 @@ def sent_new_events_to_mattermost(self) -> str:
                     log.warning("Event id=%s: YouTrack did not return idReadable — skipping", ev_id)
                     continue
 
-                mm_result = mm.post_alert(
-                    channel_id,
-                    status="firing",
-                    alertname=alertname,
-                    instance=instance,
-                    summary=summary,
-                    starts_at=startsat,
-                    severity=severity,
-                    ack_url=ack_url
-                )
+                if project == "voice":
+                    mention_users = settings.MENTION_USERS_RUBEJ
 
-                post_id = mm_result.get("id", {})
-                if not post_id:
-                    log.warning("Event id = %s: Mattermost did not return post_id — skipping", ev_id)
-                    continue
+                    mm_result = mm.post_alert(
+                        channel_id_rubej,
+                        status="firing",
+                        alertname=alertname,
+                        instance=instance,
+                        summary=summary,
+                        starts_at=startsat,
+                        severity=severity,
+                        ack_url=ack_url,
+                        mention_users=mention_users
+                    )
 
-                Events.objects.filter(id=ev_id).update(
-                    post_id=post_id,
-                    issue_id=issue_id,
-                    status=Status.SENT,
-                )
-                processed += 1
-                log.info("Event id = %s обработан: post_id=%s, issue_id=%s", ev_id, post_id, issue_id)
+                    post_id = mm_result.get("id", {})
+                    if not post_id:
+                        log.warning("Event id = %s: Mattermost did not return post_id — skipping", ev_id)
+                        continue
+
+                    Events.objects.filter(id=ev_id).update(
+                        post_id=post_id,
+                        issue_id=issue_id,
+                        status=Status.SENT,
+                    )
+                    processed += 1
+                    log.info("Event id = %s обработан: post_id=%s, issue_id=%s", ev_id, post_id, issue_id)
+                elif project == "epu":
+                    mention_users = settings.MENTION_USERS_EPU
+                    mm_result = mm.post_alert(
+                        channel_id_epu,
+                        status="firing",
+                        alertname=alertname,
+                        instance=instance,
+                        summary=summary,
+                        starts_at=startsat,
+                        severity=severity,
+                        ack_url=ack_url,
+                        mention_users=mention_users
+                    )
+
+                    post_id = mm_result.get("id", {})
+                    if not post_id:
+                        log.warning("Event id = %s: Mattermost did not return post_id — skipping", ev_id)
+                        continue
+
+                    Events.objects.filter(id=ev_id).update(
+                        post_id=post_id,
+                        issue_id=issue_id,
+                        status=Status.SENT,
+                    )
+                    processed += 1
+                    log.info("Event id = %s обработан: post_id=%s, issue_id=%s", ev_id, post_id, issue_id)
 
             except Exception:
                 log.exception("Event id = %s: error while sending", ev_id)
