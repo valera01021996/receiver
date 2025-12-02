@@ -77,7 +77,7 @@ def sent_new_events_to_mattermost(self) -> str:
                     log.warning("Event id=%s: YouTrack did not return idReadable — skipping", ev_id)
                     continue
 
-                if project == "voice":
+                if project == "rubej":
                     mention_users = settings.MENTION_USERS_RUBEJ
 
                     mm_result = mm.post_alert(
