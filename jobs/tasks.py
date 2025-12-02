@@ -47,7 +47,7 @@ def sent_new_events_to_mattermost(self) -> str:
                 if not parsed or len(parsed) != 6:
                     log.warning("Event id = %s: parse_message returned %r — skipping. Text: %r", ev_id, parsed, sms_text)
                     continue
-                aalertname, instance, startsat, status, severity, project = parsed
+                alertname, instance, startsat, status, severity, project = parsed
                 
                 # Summary ВСЕГДА берём из БД (обязательно!)
                 summary = None
