@@ -44,21 +44,21 @@ def sent_new_events_to_mattermost(self) -> str:
                     continue
 
                 parsed = parse_message(sms_text)
-                if not parsed or len(parsed) != 7:
+                if not parsed or len(parsed) != 6:
                     log.warning("Event id = %s: parse_message returned %r — skipping. Text: %r", ev_id, parsed, sms_text)
                     continue
-                alertname, severity, status, instance, project, startsat, message = parsed
+                alertname, severity, status, instance, project, startsat = parsed
                 
                 # Summary ВСЕГДА берём из БД (обязательно!)
                 summary = None
                 try:
                     alert_desc = AlertDescription.objects.filter(alertname=alertname).first()
                     if alert_desc:
-                        summary = message + "\n" + alert_desc.description
+                        summary = alert_desc.description
                         log.info("Event id = %s: используем описание из БД для '%s'", ev_id, alertname)
                     else:
                         # Если нет в БД - используем дефолтное описание
-                        summary = message
+                        summary = f"Alert: {alertname}"
                         log.warning("Event id = %s: описание для '%s' не найдено в БД! Используем дефолтное: '%s'", 
                                    ev_id, alertname, summary)
                 except Exception as e:
