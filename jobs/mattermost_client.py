@@ -37,7 +37,7 @@ class MattermostClient:
             {"title": "alertname", "value": alertname, "short": True},
             {"title": "instance", "value": instance, "short": True},
             {"title": "services", "value": service, "short": True},
-            {"title": "summary", "value": summary, "short": False},
+            {"title": "summary", "value": summary, "short": True},
             {"title": "Starts At", "value": starts_at, "short": True},
             {"title": "Created At", "value": created_at.strftime("%Y-%m-%d %H:%M:%S"), "short": True},
         ]

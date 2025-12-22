@@ -54,7 +54,7 @@ def sent_new_events_to_mattermost(self) -> str:
                 alertname, severity, status, instance, project, startsat, service, summary = parsed
                 
                 # Summary ВСЕГДА берём из БД (обязательно!)
-                summary = None
+                # summary = None
                 try:
                     alert_desc = AlertDescription.objects.filter(alertname=alertname).first()
                     if alert_desc:
