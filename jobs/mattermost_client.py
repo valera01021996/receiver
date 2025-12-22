@@ -33,11 +33,11 @@ class MattermostClient:
 
         fields = [
             {"title": "Status", "value": status_value, "short": True},
-            {"title": "severity", "value": severity, "short": True},
-            {"title": "alertname", "value": alertname, "short": True},
-            {"title": "instance", "value": instance, "short": True},
-            {"title": "services", "value": service, "short": True},
-            {"title": "summary", "value": summary, "short": True},
+            {"title": "Severity", "value": severity, "short": True},
+            {"title": "Alertname", "value": alertname, "short": True},
+            {"title": "Instance", "value": instance, "short": True},
+            {"title": "Affected services", "value": service, "short": True},
+            {"title": "Summary", "value": summary, "short": True},
             {"title": "Starts At", "value": starts_at, "short": True},
             {"title": "Created At", "value": created_at.strftime("%Y-%m-%d %H:%M:%S"), "short": True},
         ]
