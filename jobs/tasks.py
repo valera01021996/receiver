@@ -8,6 +8,7 @@ from .utils import parse_message
 from .locks import task_lock
 from datetime import datetime, timedelta, timezone
 from .choises import Status
+from django.utils import localtime
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ def sent_new_events_to_mattermost(self) -> str:
         pending = (Events.objects.filter(status=Status.NEW).values_list("id", "sms_text", "created_at"))
         processed = 0
         for ev_id, sms_text, created_at in pending:
+            created_at = localtime(created_at)
             try:
                 if len(sms_text) < 50:
                     log.warning("Event id = %s: sms_text is too short — skipping", ev_id)
