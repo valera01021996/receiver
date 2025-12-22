@@ -8,8 +8,7 @@ from .utils import parse_message
 from .locks import task_lock
 from datetime import datetime, timedelta, timezone
 from .choises import Status
-from django.utils import localtime
-
+from django.utils.timezone import localtime
 log = logging.getLogger(__name__)
 
 
