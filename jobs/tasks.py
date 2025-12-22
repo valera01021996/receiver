@@ -27,6 +27,7 @@ def sent_new_events_to_mattermost(self) -> str:
             log.info("Skip: task already running")
             return {"processed": 0, "skipped": True}
         ack_url = settings.ACK_URL
+        get_ack_url = settings.GET_ACK_URL
         channel_id_rubej = settings.CHANNEL_ID_RUBEJ
         channel_id_epu = settings.CHANNEL_ID_EPU
         yt_project = settings.YOUTRACK_PROJECT
@@ -96,6 +97,7 @@ def sent_new_events_to_mattermost(self) -> str:
                         service=service,
                         created_at=created_at,
                         ack_url=ack_url,
+                        get_ack_url=get_ack_url,
                         mention_users=mention_users
                     )
 
@@ -124,6 +126,7 @@ def sent_new_events_to_mattermost(self) -> str:
                         service=service,
                         created_at=created_at,
                         ack_url=ack_url,
+                        get_ack_url=get_ack_url,
                         mention_users=mention_users
                     )
 
