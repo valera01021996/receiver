@@ -32,14 +32,22 @@ class MattermostClient:
         status_value = "🔥 FIRING" if status_norm == "firing" else status.upper()
 
         fields = [
-            {"title": "Status", "value": status_value, "short": True},
-            {"title": "Severity", "value": severity, "short": True},
-            {"title": "Alertname", "value": alertname, "short": True},
-            {"title": "Instance", "value": instance, "short": True},
-            {"title": "Affected services", "value": service, "short": True},
-            {"title": "Summary", "value": summary, "short": True},
-            {"title": "Starts At", "value": starts_at, "short": True},
-            {"title": "Created At", "value": created_at.strftime("%Y-%m-%d %H:%M:%S"), "short": True},
+            # {"title": "Status", "value": status_value, "short": True},
+            # {"title": "Severity", "value": severity, "short": True},
+            # {"title": "Alertname", "value": alertname, "short": True},
+            # {"title": "Instance", "value": instance, "short": True},
+            # {"title": "Affected services", "value": service, "short": True},
+            # {"title": "Summary", "value": summary, "short": True},
+            # {"title": "Starts At", "value": starts_at, "short": True},
+            # {"title": "Created At", "value": created_at.strftime("%Y-%m-%d %H:%M:%S"), "short": True},
+            {"value": f"**Status:** {status_value}", "short": True},
+            {"value": f"**Severity:** {severity}", "short": True},
+            {"value": f"**Alertname:** {alertname}", "short": True},
+            {"value": f"**Instance:** {instance}", "short": True},
+            {"value": f"**Affected services:** {service}", "short": True},
+            {"value": f"**Summary:** {summary}", "short": True},
+            {"value": f"**Starts At:** {starts_at}", "short": True},
+            {"value": f"**Created At:** {created_at.strftime('%Y-%m-%d %H:%M:%S')}", "short": True},
         ]
 
         attachment: Dict[str, Any] = {
