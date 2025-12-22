@@ -7,6 +7,7 @@ from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from alerts.models import Events
 from jobs.choises import Status
+from jobs.utils import get_alerts_by_date_and_instance
 
 log = logging.getLogger(__name__)
 
@@ -113,3 +114,26 @@ def mm_ack(request):
         'user': user_name,
         'project': settings.YOUTRACK_PROJECT,
     }, status = 403)
+
+
+@csrf_exempt
+def get_alerts(request):
+    if request.method != 'POST':
+        return HttpResponseBadRequest('POST only')
+    
+    mm_client = MattermostClient()
+    yt_client = YouTrackClient()
+
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest('Invalid JSON') 
+
+    post_id = payload.get('post_id')
+    channel_id = payload.get('channel_id')
+    instance = payload.get('integration').get('context').get('instance')
+    created_at = payload.get('integration').get('context').get('created_at')
+
+    alerts = get_alerts_by_date_and_instance(instance, created_at)
+    print(alerts)
+    

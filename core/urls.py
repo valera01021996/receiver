@@ -16,9 +16,10 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
-from jobs.views import mm_ack
+from jobs.views import mm_ack, get_alerts
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('hooks/mattermost/action/', mm_ack, name='mm_ack')
+    path('hooks/mattermost/action/', mm_ack, name='mm_ack'),
+    path('hooks/mattermost/get_alerts/', get_alerts, name='get_alerts'),
 ]

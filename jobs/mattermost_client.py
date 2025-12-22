@@ -86,7 +86,7 @@ class MattermostClient:
                         "context": {
                             "action": "get_alerts",
                             "instance": instance,
-                            "created_at": created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                            "created_at": created_at,
                         }
                     }
                 }
