@@ -24,6 +24,7 @@ class MattermostClient:
                    service: str,
                    created_at: str,
                    ack_url: Optional[str] = None,
+                   get_ack_url: Optional[str] = None,
                    title: str = "mattermost-alertmanager",
                    mention_users: Optional[str] = None
                    ) -> Dict[str, Any]:
@@ -75,7 +76,21 @@ class MattermostClient:
                             "service": service,
                         }
                     }
+                },
+                {
+                    "name": "Get alerts",
+                    "type": "button",
+                    "style": "primary",
+                    "integration": {
+                        "url": get_ack_url,
+                        "context": {
+                            "action": "get_alerts",
+                            "instance": instance,
+                            "created_at": created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                        }
+                    }
                 }
+                
             ]
 
         body = {
