@@ -3,7 +3,7 @@ from .models import Events, AlertDescription
 
 @admin.register(Events)
 class FingerprintAdmin(admin.ModelAdmin):
-    list_display = ('id', 'post_id', 'issue_id', 'status', 'acked_by', 'sms_text')
+    list_display = ('id', 'post_id', 'issue_id', 'status', 'acked_by', 'sms_text', 'created_at')
     search_fields = ('post_id', 'issue_id', 'status', 'acked_by')
 
 

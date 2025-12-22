@@ -12,6 +12,7 @@ class Events(models.Model):
     )
     acked_by = models.CharField(max_length=50, blank=True, null=True)
     sms_text = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created")
 
     def __str__(self):
         return f"{self.post_id} [{self.status}]"

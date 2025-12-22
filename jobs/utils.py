@@ -8,6 +8,8 @@ class Alert(NamedTuple):
     status: str
     severity: str
     project: str
+    service: str
+    summary: str
 
 
 def parse_message(text: str) -> Optional[Alert]:
@@ -17,7 +19,7 @@ def parse_message(text: str) -> Optional[Alert]:
     """
     try:
         parts = [part.strip() for part in text.split('*')]
-        if len(parts) != 6:
+        if len(parts) != 8:
             return None
 
         return Alert(*parts)

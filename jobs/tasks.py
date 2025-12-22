@@ -34,20 +34,24 @@ def sent_new_events_to_mattermost(self) -> str:
         mm = MattermostClient()
         yt = YouTrackClient()
 
-        pending = (Events.objects.filter(status=Status.NEW).values_list("id", "sms_text"))
+        pending = (Events.objects.filter(status=Status.NEW).values_list("id", "sms_text", "created_at"))
         processed = 0
-        for ev_id, sms_text in pending:
+        for ev_id, sms_text, created_at in pending:
             try:
+                if len(sms_text) < 50:
+                    log.warning("Event id = %s: sms_text is too short — skipping", ev_id)
+                    Events.objects.filter(id=ev_id).update(status=Status.SKIPPED)
+                    continue
                 sms_text = (sms_text or "").strip()
                 if not sms_text:
                     log.warning("Event id = %s: empty sms_text — skipping", ev_id)
                     continue
 
                 parsed = parse_message(sms_text)
-                if not parsed or len(parsed) != 6:
+                if not parsed or len(parsed) != 8:
                     log.warning("Event id = %s: parse_message returned %r — skipping. Text: %r", ev_id, parsed, sms_text)
                     continue
-                alertname, severity, status, instance, project, startsat = parsed
+                alertname, severity, status, instance, project, startsat, service, summary = parsed
                 
                 # Summary ВСЕГДА берём из БД (обязательно!)
                 summary = None
@@ -58,7 +62,7 @@ def sent_new_events_to_mattermost(self) -> str:
                         log.info("Event id = %s: используем описание из БД для '%s'", ev_id, alertname)
                     else:
                         # Если нет в БД - используем дефолтное описание
-                        summary = f"Alert: {alertname}"
+                        summary = f"{summary}"
                         log.warning("Event id = %s: описание для '%s' не найдено в БД! Используем дефолтное: '%s'", 
                                    ev_id, alertname, summary)
                 except Exception as e:
@@ -88,6 +92,8 @@ def sent_new_events_to_mattermost(self) -> str:
                         summary=summary,
                         starts_at=startsat,
                         severity=severity,
+                        service=service,
+                        created_at=created_at,
                         ack_url=ack_url,
                         mention_users=mention_users
                     )
@@ -114,6 +120,8 @@ def sent_new_events_to_mattermost(self) -> str:
                         summary=summary,
                         starts_at=startsat,
                         severity=severity,
+                        service=service,
+                        created_at=created_at,
                         ack_url=ack_url,
                         mention_users=mention_users
                     )

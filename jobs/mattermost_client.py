@@ -21,6 +21,8 @@ class MattermostClient:
                    summary: str,
                    starts_at: str,
                    severity: str,
+                   service: str,
+                   created_at: str,
                    ack_url: Optional[str] = None,
                    title: str = "mattermost-alertmanager",
                    mention_users: Optional[str] = None
@@ -34,8 +36,10 @@ class MattermostClient:
             {"title": "severity", "value": severity, "short": True},
             {"title": "alertname", "value": alertname, "short": True},
             {"title": "instance", "value": instance, "short": True},
+            {"title": "service", "value": service, "short": True},
             {"title": "summary", "value": summary, "short": False},
             {"title": "Starts At", "value": starts_at, "short": True},
+            {"title": "Created At", "value": created_at.strftime("%Y-%m-%d %H:%M:%S"), "short": True},
         ]
 
         attachment: Dict[str, Any] = {
@@ -60,6 +64,7 @@ class MattermostClient:
                             "severity": severity,
                             "summary": summary,
                             "starts_at": starts_at,
+                            "service": service,
                         }
                     }
                 }
