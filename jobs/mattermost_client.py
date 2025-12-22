@@ -45,8 +45,8 @@ class MattermostClient:
             {"value": f"**Alertname:** {alertname}", "short": True},
             {"value": f"**Instance:** {instance}", "short": True},
             {"value": f"**Affected services:** {service}", "short": True},
-            {"value": f"**Summary:** {summary}", "short": True},
             {"value": f"**Starts At:** {starts_at}", "short": True},
+            {"value": f"**Summary:** {summary}", "short": True},
             {"value": f"**Created At:** {created_at.strftime('%Y-%m-%d %H:%M:%S')}", "short": True},
         ]
 
