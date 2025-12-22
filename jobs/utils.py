@@ -1,6 +1,6 @@
 from typing import Optional, NamedTuple
 from pathlib import Path
-from models import Events
+from alerts.models import Events
 
 class Alert(NamedTuple):
     alertname: str
