@@ -2,6 +2,8 @@ import requests
 from typing import Dict, Optional, Any
 from core import settings
 import re
+from datetime import datetime
+
 class MattermostClient:
     def __init__(self):
         self.base_url = settings.MATTERMOST_URL
@@ -86,7 +88,7 @@ class MattermostClient:
                         "context": {
                             "action": "get_alerts",
                             "instance": instance,
-                            "created_at": created_at,
+                            "created_at": datetime.strftime(created_at, '%Y-%m-%d %H:%M:%S'),
                         }
                     }
                 }
