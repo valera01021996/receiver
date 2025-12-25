@@ -150,4 +150,46 @@ def get_alerts(request):
 
     alerts = get_alerts_by_date_and_instance(instance, created_at)
     log.info(f"Alerts found: {alerts}")
-    return JsonResponse({'ok': True, 'alerts': alerts})
+
+    mm_client._post("/api/v4/posts", json={
+    "channel_id": channel_id,
+    "root_id": post_id,  # ← Это делает сообщение ответом в thread
+    "message": f"📋 Найдено **{len(alerts)}** алертов для хоста **{instance}** за {created_at.strftime('%Y-%m-%d')}:"
+})
+
+    # Отправляем каждый алерт в thread
+    for alert in alerts:
+        # Парсим sms_text чтобы достать поля
+        parts = alert['sms_text'].split('*')
+        if len(parts) >= 8:
+            alertname, severity, status, inst, project, starts_at, service, summary = parts
+            
+            # Определяем цвет по статусу
+            color = "#2ECC71" if alert['status'] == 'acked' else "#e53935"
+            
+            fields = [
+                {"value": f"**Alertname:** {alertname}", "short": True},
+                {"value": f"**Severity:** {severity}", "short": True},
+                {"value": f"**Status:** {alert['status'].upper()}", "short": True},
+                {"value": f"**Issue:** {alert['issue_id']}", "short": True},
+            ]
+            
+            if alert['acked_by']:
+                fields.append({"value": f"**Acked by:** @{alert['acked_by']}", "short": True})
+            
+            attachment = {
+                "color": color,
+                "fields": fields,
+            }
+            
+            # Отправляем в thread
+            mm_client._post("/api/v4/posts", json={
+                "channel_id": channel_id,
+                "root_id": post_id,  # ← Отправляем в thread
+                "props": {
+                    "attachments": [attachment]
+                }
+            })
+
+        return JsonResponse({'ok': True, 'count': len(alerts)})
+
