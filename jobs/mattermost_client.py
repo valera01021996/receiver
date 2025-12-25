@@ -26,7 +26,7 @@ class MattermostClient:
                    service: str,
                    created_at: str,
                    ack_url: Optional[str] = None,
-                    get_ack_url: Optional[str] = None,
+                    get_alerts_url: Optional[str] = None,
                    title: str = "mattermost-alertmanager",
                    mention_users: Optional[str] = None
                    ) -> Dict[str, Any]:
@@ -84,7 +84,7 @@ class MattermostClient:
                     "type": "button",
                     "style": "primary",
                     "integration": {
-                        "url": get_ack_url,
+                        "url": get_alerts_url,
                         "context": {
                             "action": "get_alerts",
                             "instance": instance,
