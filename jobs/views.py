@@ -178,7 +178,7 @@ def get_alerts(request):
                     {"value": f"**Alertname:** {alertname}", "short": True},
                     {"value": f"**Severity:** {severity}", "short": True},
                     {"value": f"**Issue:** {alert['issue_id']}", "short": True},
-                    {"value": f"**Summary:** {alert['summary']}", "short": True},
+                    {"value": f"**Summary:** {summary}", "short": True},
                 ]
                 
                 if alert['acked_by']:
