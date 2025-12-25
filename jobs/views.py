@@ -149,4 +149,5 @@ def get_alerts(request):
     log.info(f"Extracted values - instance: {instance}, created_at: {created_at}")
 
     alerts = get_alerts_by_date_and_instance(instance, created_at)
+    log.info(f"Alerts found: {alerts}")
     return JsonResponse({'ok': True, 'alerts': alerts})
