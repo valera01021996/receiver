@@ -8,6 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from alerts.models import Events
 from jobs.choises import Status
 from jobs.utils import get_alerts_by_date_and_instance
+from datetime import datetime
 
 log = logging.getLogger(__name__)
 
@@ -143,6 +144,7 @@ def get_alerts(request):
     
     instance = context.get('instance')
     created_at = context.get('created_at')
+    created_at = datetime.strptime(created_at, '%Y-%m-%d %H:%M:%S')
     
     log.info(f"Extracted values - instance: {instance}, created_at: {created_at}")
 
