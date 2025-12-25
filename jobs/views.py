@@ -174,6 +174,7 @@ def get_alerts(request):
                     {"value": f"**Alertname:** {alertname}", "short": True},
                     {"value": f"**Severity:** {severity}", "short": True},
                     {"value": f"**Issue:** {alert['issue_id']}", "short": True},
+                    {"value": f"**Summary:** {alert['summary']}", "short": True},
                 ]
                 
                 if alert['acked_by']:
@@ -195,5 +196,5 @@ def get_alerts(request):
                 i += 1
         except Exception as e:
             log.error(f"Error sending alert: {e}")
-        return JsonResponse({'ok': True, 'count': len(alerts)})
+    return JsonResponse({'ok': True, 'count': len(alerts)})
 
