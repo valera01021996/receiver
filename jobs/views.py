@@ -74,7 +74,9 @@ def mm_ack(request):
         link_line = f"[Открыть тикет в CRM]({issue_url})"
         for att in attachments:
             att['color'] = '#2ECC71'
-            att.pop('actions', None)
+            # att.pop('actions', None)
+            if 'actions' in att:
+                att['actions'] = [a for a in att['actions'] if a.get('name') != 'Acknowledge']
 
             text = att.get('text', '') or ''
             if 'Acknowledged by' not in text:
