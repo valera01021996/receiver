@@ -123,7 +123,6 @@ def get_alerts(request):
         return HttpResponseBadRequest('POST only')
     
     mm_client = MattermostClient()
-    yt_client = YouTrackClient()
 
     try:
         payload = json.loads(request.body.decode('utf-8') or '{}')
@@ -143,8 +142,13 @@ def get_alerts(request):
         return HttpResponseBadRequest("Missing 'context' in integration")
     
     instance = context.get('instance')
-    created_at = context.get('created_at')
-    created_at = datetime.strptime(created_at, '%Y-%m-%d %H:%M:%S')
+    created_at_str = context.get('created_at')
+    if not instance or not created_at_str:
+        return HttpResponseBadRequest('Missing instance or created_at in context')
+    try:
+        created_at = datetime.strptime(created_at_str, '%Y-%m-%d %H:%M:%S')
+    except ValueError:
+        return HttpResponseBadRequest('Invalid created_at format')
     
     log.info(f"Extracted values - instance: {instance}, created_at: {created_at}")
 
