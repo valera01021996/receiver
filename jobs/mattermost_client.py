@@ -26,7 +26,7 @@ class MattermostClient:
                    service: str,
                    created_at: str,
                    ack_url: Optional[str] = None,
-                   get_ack_url: Optional[str] = None,
+                    get_ack_url: Optional[str] = None,
                    title: str = "mattermost-alertmanager",
                    mention_users: Optional[str] = None
                    ) -> Dict[str, Any]:

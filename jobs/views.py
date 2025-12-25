@@ -127,13 +127,30 @@ def get_alerts(request):
     try:
         payload = json.loads(request.body.decode('utf-8') or '{}')
     except json.JSONDecodeError:
-        return HttpResponseBadRequest('Invalid JSON') 
+        return HttpResponseBadRequest('Invalid JSON')
+    
+    # Логируем payload для отладки
+    log.info(f"get_alerts received payload: {json.dumps(payload, indent=2)}")
 
     post_id = payload.get('post_id')
     channel_id = payload.get('channel_id')
-    instance = payload.get('integration').get('context').get('instance')
-    created_at = payload.get('integration').get('context').get('created_at')
+    
+    # Безопасное извлечение вложенных данных
+    integration = payload.get('integration')
+    if not integration:
+        log.error("No 'integration' key in payload")
+        return HttpResponseBadRequest("Missing 'integration' in payload")
+    
+    context = integration.get('context')
+    if not context:
+        log.error("No 'context' key in integration")
+        return HttpResponseBadRequest("Missing 'context' in integration")
+    
+    instance = context.get('instance')
+    created_at = context.get('created_at')
+    
+    log.info(f"Extracted values - instance: {instance}, created_at: {created_at}")
 
     alerts = get_alerts_by_date_and_instance(instance, created_at)
-    print(alerts)
+    return JsonResponse({'ok': True, 'alerts': alerts})
     
