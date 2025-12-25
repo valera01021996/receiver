@@ -31,6 +31,6 @@ def parse_message(text: str) -> Optional[Alert]:
 def get_alerts_by_date_and_instance(instance: str, created_at):
     only_date = created_at.date()
     result = Events.objects.filter(created_at__date=only_date, sms_text__icontains=instance)
-    return list(result)
+    return list(result.values())
     
 
