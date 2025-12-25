@@ -76,7 +76,13 @@ def mm_ack(request):
             att['color'] = '#2ECC71'
             # att.pop('actions', None)
             if 'actions' in att:
-                att['actions'] = [a for a in att['actions'] if a.get('name') != 'Acknowledge']
+                new_actions = []
+                for action in att['actions']:
+                    if action.get('name') == 'Get alerts':
+                        new_actions.append(action)
+                att['actions'] = new_actions
+
+                #att['actions'] = [a for a in att['actions'] if a.get('name') != 'Acknowledge']
 
             text = att.get('text', '') or ''
             if 'Acknowledged by' not in text:
