@@ -135,13 +135,8 @@ def get_alerts(request):
     post_id = payload.get('post_id')
     channel_id = payload.get('channel_id')
     
-    # Безопасное извлечение вложенных данных
-    integration = payload.get('integration')
-    if not integration:
-        log.error("No 'integration' key in payload")
-        return HttpResponseBadRequest("Missing 'integration' in payload")
     
-    context = integration.get('context')
+    context = payload.get('context')
     if not context:
         log.error("No 'context' key in integration")
         return HttpResponseBadRequest("Missing 'context' in integration")
@@ -153,4 +148,3 @@ def get_alerts(request):
 
     alerts = get_alerts_by_date_and_instance(instance, created_at)
     return JsonResponse({'ok': True, 'alerts': alerts})
-    
