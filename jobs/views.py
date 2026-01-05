@@ -9,6 +9,7 @@ from alerts.models import Events
 from jobs.choises import Status
 from jobs.utils import get_alerts_by_date_and_instance
 from datetime import datetime
+from jobs.utils import parse_message
 
 log = logging.getLogger(__name__)
 
@@ -72,15 +73,17 @@ def mm_ack(request):
         props = post.get('props') or {}
         attachments = props.get('attachments') or []
         link_line = f"[Открыть тикет в CRM]({issue_url})"
+        parsed = parse_message(fp.sms_text) if fp.sms_text else None
+        instance = parsed.instance if parsed else 'unknown'
         for att in attachments:
             att['color'] = '#2ECC71'
             # att.pop('actions', None)
-            if 'actions' in att:
-                new_actions = []
-                for action in att['actions']:
-                    if action.get('name') == 'Get alerts':
-                        new_actions.append(action)
-                att['actions'] = new_actions
+            # if 'actions' in att:
+            #     new_actions = []
+            #     for action in att['actions']:
+            #         if action.get('name') == 'Get alerts':
+            #             new_actions.append(action)
+            #     att['actions'] = new_actions
 
                 #att['actions'] = [a for a in att['actions'] if a.get('name') != 'Acknowledge']
 
@@ -92,6 +95,20 @@ def mm_ack(request):
             if not any((f.get('title') == 'Youtrack' or issue_url in (f.get('value') or '')) for f in fields):
                 fields.append({'title': 'Youtrack', 'value': link_line, 'short': False})
                 att['fields'] = fields
+
+            att['actions'] = [{
+                "name": "Get alerts",
+                "type": "button",
+                "style": "primary",
+                "integration": {
+                    "url": settings.GET_ALERTS_URL,
+                    "context": {
+                        "action": "get_alerts",
+                        "instance": instance,
+                        "created_at": fp.created_at.strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                }
+            }]
 
         if not attachments:
             attachments = [{
