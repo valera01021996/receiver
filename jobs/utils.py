@@ -2,13 +2,23 @@ from typing import Optional, NamedTuple
 from pathlib import Path
 from alerts.models import Events
 
+# class Alert(NamedTuple):
+#     alertname: str
+#     instance: str
+#     startsat: str
+#     status: str
+#     severity: str
+#     project: str
+#     service: str
+#     summary: str
+
 class Alert(NamedTuple):
     alertname: str
-    instance: str
-    startsat: str
-    status: str
     severity: str
+    status: str
+    instance: str
     project: str
+    startsat: str
     service: str
     summary: str
 
