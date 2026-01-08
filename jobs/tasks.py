@@ -98,7 +98,7 @@ def sent_new_events_to_mattermost(self) -> str:
                         created_at=created_at,
                         ack_url=ack_url,
                         get_alerts_url=get_alerts_url,
-                        mention_users=mention_users
+#                        mention_users=mention_users
                     )
 
                     post_id = mm_result.get("id", {})
@@ -127,7 +127,7 @@ def sent_new_events_to_mattermost(self) -> str:
                         created_at=created_at,
                         ack_url=ack_url,
                         get_alerts_url=get_alerts_url,
-                        mention_users=mention_users
+#                        mention_users=mention_users
                     )
 
                     post_id = mm_result.get("id", {})
@@ -146,3 +146,49 @@ def sent_new_events_to_mattermost(self) -> str:
             except Exception:
                 log.exception("Event id = %s: error while sending", ev_id)
         return {"processed": processed}
+
+
+@shared_task(bind=True, name="jobs.tag_engineers_hourly")
+def tag_engineers_hourly(self) -> str:
+    """Задача для тегания инженеров каждый час в двух каналах Mattermost"""
+    with task_lock("lock:jobs.tag_engineers_hourly", timeout=60) as acquired:
+        if not acquired:
+            log.info("Skip: task already running")
+            return {"skipped": True}
+        
+        mm = MattermostClient()
+        channel_id_rubej = settings.CHANNEL_ID_RUBEJ
+        channel_id_epu = settings.CHANNEL_ID_EPU
+        mention_users_rubej = settings.MENTION_USERS_RUBEJ
+        mention_users_epu = settings.MENTION_USERS_EPU
+        
+        # Отправка в канал RUBEJ
+        if channel_id_rubej and mention_users_rubej:
+            try:
+                # Формируем текст с тегами
+                users = [u.lstrip('@') for u in re.split(r'[,\s]+', mention_users_rubej.strip()) if u]
+                mention_text = " ".join(f"@{u}" for u in users) if users else ""
+                
+                mm._post("/api/v4/posts", json={
+                    "channel_id": channel_id_rubej,
+                    "message": f"{mention_text} 🔔 Ежечасное напоминание"
+                })
+                log.info("Отправлено сообщение в канал RUBEJ")
+            except Exception as e:
+                log.error("Ошибка при отправке в канал RUBEJ: %s", e)
+        
+        # Отправка в канал EPU
+        if channel_id_epu and mention_users_epu:
+            try:
+                users = [u.lstrip('@') for u in re.split(r'[,\s]+', mention_users_epu.strip()) if u]
+                mention_text = " ".join(f"@{u}" for u in users) if users else ""
+                
+                mm._post("/api/v4/posts", json={
+                    "channel_id": channel_id_epu,
+                    "message": f"{mention_text} 🔔 Ежечасное напоминание"
+                })
+                log.info("Отправлено сообщение в канал EPU")
+            except Exception as e:
+                log.error("Ошибка при отправке в канал EPU: %s", e)
+        
+        return {"status": "completed"}

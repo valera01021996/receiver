@@ -20,6 +20,10 @@ app.conf.beat_schedule = {
         "task": "jobs.sent_new_events_to_mattermost",
         "schedule": timedelta(minutes=2),
     },
+    "tag_engineers_hourly": {
+        "task": "jobs.tag_engineers_hourly",
+        "schedule": timedelta(hours=1),
+    },
 }
 
 app.autodiscover_tasks()
