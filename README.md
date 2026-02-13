@@ -1,360 +1,257 @@
-# SMS Alert System
+# Receiver — Alert Management System
 
-Система автоматической обработки SMS-алертов с интеграцией в Mattermost и YouTrack.
+Система обработки алертов мониторинга с интеграцией в **Mattermost** и **YouTrack**.
 
-## 🏗️ Архитектура
+События (Events) поступают в БД, обрабатываются Celery-воркером: создаётся тикет в YouTrack и публикуется уведомление в Mattermost с кнопкой подтверждения (Acknowledge).
+
+## Что делает сервис
+
+- Читает новые события из PostgreSQL каждые 2 минуты
+- Парсит текст алерта (8 полей, разделённых `*`)
+- Подставляет описание на русском из таблицы `AlertDescription`
+- Создаёт тикет в YouTrack
+- Публикует алерт в канал Mattermost с кнопками **Acknowledge** и **Get Alerts**
+- При нажатии Acknowledge — назначает тикет на пользователя в YouTrack, меняет статус
+- Каждый час тегает дежурных инженеров в каналах
+
+## Архитектура
 
 ```
-SMS → Модем (/dev/ttyUSB0) → Pyserial (AT команды) → Docker Worker → Events (БД) → YouTrack + Mattermost
+                    ┌──────────────┐
+                    │  PostgreSQL  │
+                    │   (Events,   │
+                    │ AlertDescr.) │
+                    └──────┬───────┘
+                           │
+              ┌────────────┼────────────┐
+              │            │            │
+              ▼            │            │
+   ┌──────────────┐        │   ┌────────┴───────┐
+   │ Celery Beat  │────────┘   │  Django (web)  │
+   │  (scheduler) │            │   Gunicorn +   │
+   └──────┬───────┘            │     Nginx      │
+          │                    └───┬────────┬───┘
+          ▼                        │        │
+   ┌──────────────┐                │        │
+   │ Celery Worker │               │        │
+   │  (tasks.py)  │               │        │
+   └──┬────────┬──┘               │        │
+      │        │                  │        │
+      ▼        ▼                  ▼        ▼
+┌──────────┐ ┌──────────┐   Webhook:    Webhook:
+│ YouTrack │ │Mattermost│   /action/   /get_alerts/
+│  (API)   │ │  (API)   │◄──────────────────┘
+└──────────┘ └────┬─────┘
+                  │
+                  │ Кнопка "Acknowledge"
+                  ▼
+             Пользователь
 ```
 
-**Ключевые особенности:**
-- Прямое чтение SMS с модема через AT команды (pyserial)
-- Без Gammu - проще и надёжнее
-- Summary с кириллицей хранится в БД (не передаётся в SMS)
-- Автоматическое создание тикетов и уведомлений
+### Поток данных
 
-## 🚀 Быстрое развёртывание
+1. **Event создаётся** в БД (внешний источник записывает `sms_text`)
+2. **Celery Beat** раз в 2 минуты запускает задачу `sent_new_events_to_mattermost`
+3. **Worker** забирает события со статусом `new`:
+   - Парсит `sms_text` → 8 полей: `alertname*severity*status*instance*project*startsat*service*summary`
+   - Ищет описание в таблице `AlertDescription` по `alertname`
+   - Создаёт issue в YouTrack
+   - Публикует в Mattermost (канал зависит от поля `project`: `voice` → RUBEJ, `epu` → EPU)
+   - Обновляет Event: `status=sent`, сохраняет `post_id` и `issue_id`
+4. **Пользователь** нажимает **Acknowledge** в Mattermost → webhook `POST /hooks/mattermost/action/`:
+   - Проверяет права пользователя (`ALLOWED_ACK_USER_IDS`)
+   - Назначает тикет в YouTrack на пользователя, меняет статус на "Open"
+   - Обновляет пост в Mattermost (цвет → зелёный)
+   - Event: `status=acked`
+5. **Каждый час** задача `tag_engineers_hourly` тегает инженеров в обоих каналах
 
-### Автоматическое
+### Статусы Event
+
+```
+new → sent → acked
+  └→ skipped (невалидный формат)
+```
+
+## Формат sms_text
+
+8 полей, разделённых символом `*`:
+
+```
+alertname*severity*status*instance*project*startsat*service*summary
+```
+
+Пример:
+```
+HostSystemdServiceCrashed*warning*firing*10.10.147.13:9100*voice*2025-10-13T10:00:00.000Z*cdr_generator.service*Fallen systemd service
+```
+
+> Summary из SMS используется как fallback. Основное описание берётся из таблицы `AlertDescription` по `alertname`.
+
+## Зависимости
+
+| Пакет | Версия | Назначение |
+|---|---|---|
+| Django | 5.2.6 | Web-фреймворк |
+| Celery | 5.5.3 | Очередь задач |
+| django-celery-beat | 2.8.1 | Периодические задачи |
+| psycopg2-binary | 2.9.10 | Драйвер PostgreSQL |
+| redis | 5.2.1 | Клиент Redis |
+| django-redis | 6.0.0 | Cache-бэкенд для Django |
+| requests | 2.32.5 | HTTP-клиент (Mattermost, YouTrack API) |
+| gunicorn | 23.0.0 | WSGI-сервер |
+| python-dotenv | 1.1.1 | Загрузка .env |
+
+Инфраструктура:
+- **Python 3.12**
+- **PostgreSQL 16**
+- **Redis 7**
+- **Nginx 1.27**
+- **Docker / Docker Compose**
+
+## Переменные окружения
+
+Скопируйте `env.example` в `.env` и заполните:
+
+### PostgreSQL
+
+| Переменная | Описание | Пример |
+|---|---|---|
+| `POSTGRES_DB` | Имя базы данных | `appdb` |
+| `POSTGRES_USER` | Пользователь БД | `appuser` |
+| `POSTGRES_PASSWORD` | Пароль БД | `strongpass` |
+| `POSTGRES_HOST` | Хост БД | `postgres` |
+| `POSTGRES_PORT` | Порт БД | `5432` |
+
+### Redis / Celery
+
+| Переменная | Описание | Пример |
+|---|---|---|
+| `REDIS_URL` | URL Redis для кэша | `redis://redis:6379/1` |
+| `CELERY_BROKER_URL` | Брокер Celery | `redis://redis:6379/1` |
+| `CELERY_RESULT_BACKEND` | Хранилище результатов | `redis://redis:6379/2` |
+
+### Mattermost
+
+| Переменная | Описание | Пример |
+|---|---|---|
+| `MATTERMOST_URL` | URL сервера Mattermost | `https://chat.example.com` |
+| `MATTERMOST_TOKEN` | Токен бота | `8kqbchps4i...` |
+| `CHANNEL_ID_RUBEJ` | ID канала для voice-алертов | `yxh7dws1sb...` |
+| `CHANNEL_ID_EPU` | ID канала для EPU-алертов | `nr69cyiy5b...` |
+| `MENTION_USERS_RUBEJ` | Пользователи для тегов (voice) | `user1 user2` |
+| `MENTION_USERS_EPU` | Пользователи для тегов (epu) | `user3 user4` |
+| `ACK_URL` | URL вебхука Acknowledge | `http://10.221.1.7/hooks/mattermost/action/` |
+| `GET_ALERTS_URL` | URL вебхука Get Alerts | `http://10.221.1.7/hooks/mattermost/get_alerts/` |
+| `ALLOWED_ACK_USER_IDS` | Mattermost user IDs с правом ACK | `a37q7ogh7j...` |
+
+### YouTrack
+
+| Переменная | Описание | Пример |
+|---|---|---|
+| `YOUTRACK_URL` | URL сервера YouTrack | `https://crm.example.com` |
+| `YOUTRACK_TOKEN` | Permanent token API | `perm:...` |
+| `YOUTRACK_PROJECT` | ID проекта для тикетов | `OSS_INC` |
+
+### Прочие
+
+| Переменная | Описание | Пример |
+|---|---|---|
+| `TIME_ZONE` | Часовой пояс | `Asia/Tashkent` |
+
+## Как запустить
+
+### Автоматическое развёртывание
 
 ```bash
-# 1. Клонируйте репозиторий
-git clone <your-repo>
-cd django-api
+git clone <repo-url>
+cd receiver
 
-# 2. Настройте окружение
 cp env.example .env
-nano .env  # Отредактируйте переменные
+nano .env  # заполните переменные
 
-# 3. Запустите развёртывание
 chmod +x deploy.sh
 ./deploy.sh
 ```
 
-### Ручное
+### Ручной запуск
 
 ```bash
-# 1. Установка Docker
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y docker.io docker-compose
-
-# 2. Настройка окружения
+# 1. Настройка окружения
 cp env.example .env
 nano .env
 
-# 3. Запуск
+# 2. Сборка и запуск
 docker compose up -d --build
 
-# 4. Миграции
+# 3. Миграции
 docker compose exec web python manage.py migrate
 
-# 5. Создание суперпользователя
+# 4. Создание суперпользователя (для доступа к /admin/)
 docker compose exec web python manage.py createsuperuser
 ```
 
-## ⚙️ Конфигурация
+### Docker Compose сервисы
 
-### Переменные окружения (.env)
+| Сервис | Роль | Порт |
+|---|---|---|
+| `postgres` | База данных | 5433:5432 |
+| `redis` | Брокер + кэш | 6370:6379 |
+| `web` | Django + Gunicorn | — (через nginx) |
+| `worker` | Celery worker | — |
+| `beat` | Celery beat (планировщик) | — |
+| `nginx` | Reverse proxy | 80:80 |
 
-```bash
-# Mattermost
-MATTERMOST_URL=https://your-mattermost.com
-MATTERMOST_TOKEN=your-bot-token
-CHANNEL_ID=your-channel-id
-ACK_URL=http://your-domain/hooks/mattermost/action/
-
-# YouTrack
-YOUTRACK_URL=https://your-youtrack.com
-YOUTRACK_TOKEN=your-youtrack-token
-YOUTRACK_PROJECT=YOUR-PROJECT
-
-# SMS фильтрация
-ALLOWED_NUMBER=+998937552558
-ALLOWED_ACK_USER_IDS=user1,user2,user3
-
-# Модем (pyserial)
-MODEM_PORT=/dev/ttyUSB0
-MODEM_BAUDRATE=115200
-MAX_SMS_PER_ITERATION=10
-```
-
-## 📊 Поток данных
-
-### 1. Чтение SMS (каждые 2 минуты)
-
-```python
-jobs.read_sms_from_modem:
-  ├─ Подключается к модему через pyserial
-  ├─ AT+CMGL="REC UNREAD" → список непрочитанных
-  ├─ AT+CMGR=1 → чтение SMS #1
-  ├─ Проверка формата (4 поля через |)
-  ├─ Создание Events(status=NEW) в БД
-  └─ AT+CMGD=1 → удаление SMS с модема
-```
-
-### 2. Отправка в YouTrack/Mattermost (каждые 2 минуты)
-
-```python
-jobs.sent_new_events_to_mattermost:
-  ├─ SELECT * FROM Events WHERE status='NEW'
-  ├─ Parse: alertname|instance|startsat|severity
-  ├─ Поиск description в AlertDescription по alertname
-  ├─ POST YouTrack API → создание тикета
-  ├─ POST Mattermost API → создание алерта с кнопкой ACK
-  └─ UPDATE Events SET status='SENT'
-```
-
-## 📱 Формат SMS
-
-**Новый формат (4 поля):**
-```
-alertname|instance|startsat|severity
-```
-
-**Пример:**
-```
-HostSystemdServiceCrashed|10.10.147.13:9100|2025-10-13T10:00:00.000Z|warning
-```
-
-**Поля:**
-- `alertname` - ключ для поиска описания в БД
-- `instance` - сервер/хост
-- `startsat` - время начала (ISO 8601)
-- `severity` - уровень критичности
-
-**⚠️ Важно:** Summary НЕ передаётся в SMS! Берётся из БД.
-
-### Настройка описаний
-
-**Через админку:**
-```
-http://your-domain/admin/alerts/alertdescription/
-
-Добавить:
-  Alert Name: HostSystemdServiceCrashed
-  Описание: Упал системный сервис cdr_generator.service
-```
-
-**Через shell:**
-```bash
-docker compose exec web python manage.py shell
-```
-
-```python
-from alerts.models import AlertDescription
-
-AlertDescription.objects.create(
-    alertname='HostSystemdServiceCrashed',
-    description='Упал системный сервис cdr_generator.service на сервере'
-)
-```
-
-## 🔧 Управление
-
-### Docker
+## Управление
 
 ```bash
 # Статус
 docker compose ps
 
 # Логи
-docker compose logs -f worker    # Чтение SMS и обработка
-docker compose logs -f web       # Веб-сервер
-docker compose logs -f beat      # Планировщик
+docker compose logs -f worker    # обработка событий
+docker compose logs -f web       # веб-сервер
+docker compose logs -f beat      # планировщик
 
 # Перезапуск
 docker compose restart worker beat
 ```
 
-### Проверка модема
+### Добавление описаний алертов
 
-```bash
-# Из контейнера worker
-docker compose exec worker python -c "
-from jobs.sms_receiver import ATSmsReceiver
-r = ATSmsReceiver()
-if r.connect():
-    print('Модем подключён:')
-    print(r.get_modem_info())
-    r.disconnect()
-"
-```
+Через админку: `http://<host>/admin/alerts/alertdescription/`
 
-### Проверка доступа к модему
-
-```bash
-# На хосте
-ls -la /dev/ttyUSB*
-
-# В контейнере
-docker compose exec worker ls -la /dev/ttyUSB*
-```
-
-## 🧪 Тестирование
-
-### 1. Проверка модема
-
-```bash
-docker compose exec worker python manage.py shell
-```
-
-```python
-from jobs.sms_receiver import ATSmsReceiver
-
-receiver = ATSmsReceiver(port="/dev/ttyUSB0", baudrate=115200)
-receiver.connect()
-
-# Информация о модеме
-print(receiver.get_modem_info())
-
-# Список SMS
-indices = receiver.list_unread_sms()
-print(f"Непрочитанных SMS: {len(indices)}")
-
-# Прочитать первую SMS
-if indices:
-    sms = receiver.read_sms(indices[0])
-    print(f"Номер: {sms.phone}")
-    print(f"Текст: {sms.text}")
-
-receiver.disconnect()
-```
-
-### 2. Тестовый SMS
-
-Отправьте SMS на модем в формате:
-```
-TestAlert|test-server|2025-10-13T10:00:00.000Z|warning
-```
-
-Проверьте логи:
-```bash
-docker compose logs -f worker | grep "CREATED Event"
-```
-
-### 3. Проверка БД
-
+Через shell:
 ```bash
 docker compose exec web python manage.py shell
 ```
-
 ```python
-from alerts.models import Events
-
-# Все события
-Events.objects.all()
-
-# Только новые
-Events.objects.filter(status='new')
-
-# Отправленные
-Events.objects.filter(status='sent')
+from alerts.models import AlertDescription
+AlertDescription.objects.create(
+    alertname='HostSystemdServiceCrashed',
+    description='Упал системный сервис на сервере'
+)
 ```
 
-## 🐛 Устранение неполадок
-
-### SMS не читаются
-
-1. **Проверьте модем:**
-   ```bash
-   ls -la /dev/ttyUSB*
-   docker compose exec worker ls -la /dev/ttyUSB*
-   ```
-
-2. **Проверьте логи:**
-   ```bash
-   docker compose logs worker | grep "reading SMS from modem"
-   ```
-
-3. **Проверьте права:**
-   ```bash
-   # В docker-compose.yml должно быть:
-   privileged: true
-   devices:
-     - /dev/ttyUSB0:/dev/ttyUSB0
-   ```
-
-### Ошибки парсинга
-
-1. Проверьте формат SMS (4 поля через `|`)
-2. Проверьте ALLOWED_NUMBER в .env
-3. Проверьте минимальную длину (20 символов)
-
-### Описания не применяются
-
-1. **Добавьте описания в БД:**
-   ```bash
-   docker compose exec web python manage.py shell
-   ```
-   
-   ```python
-   from alerts.models import AlertDescription
-   AlertDescription.objects.create(
-       alertname='YourAlertName',
-       description='Описание на русском'
-   )
-   ```
-
-2. **Проверьте логи:**
-   ```bash
-   docker compose logs worker | grep "используем описание"
-   ```
-
-### Модем занят
-
-```bash
-# Проверьте, что модем не используется другим процессом
-sudo lsof /dev/ttyUSB0
-
-# Убейте процессы, если нужно
-sudo killall python
-docker compose restart worker
-```
-
-## 📁 Структура проекта
+## Структура проекта
 
 ```
-├── alerts/              # Django модели (Events, AlertDescription)
-├── jobs/                # Celery задачи
-│   ├── sms_receiver.py  # SMS receiver через pyserial
-│   ├── tasks.py         # Celery задачи
-│   ├── utils.py         # Парсинг SMS
-│   └── ...
-├── core/                # Настройки Django
-├── docker-compose.yml   # Оркестрация
-├── deploy.sh            # Автоматическое развёртывание
-└── README.md            # Эта документация
+receiver/
+├── core/                 # Конфигурация Django, Celery, URL-роутинг
+├── alerts/               # Модели: Events, AlertDescription
+├── jobs/                 # Бизнес-логика
+│   ├── tasks.py          # Celery-задачи
+│   ├── views.py          # Webhook-хэндлеры (ACK, Get Alerts)
+│   ├── mattermost_client.py  # HTTP-клиент Mattermost API
+│   ├── youtrack_client.py    # HTTP-клиент YouTrack API
+│   ├── utils.py          # Парсинг sms_text
+│   ├── locks.py          # Распределённые блокировки (Redis)
+│   └── choises.py        # Enum статусов
+├── docker/
+│   ├── entrypoint.sh     # Точка входа контейнера (web/worker/beat)
+│   └── nginx.conf        # Конфигурация Nginx
+├── docker-compose.yml
+├── Dockerfile
+├── deploy.sh             # Скрипт автоматического развёртывания
+├── requirements.txt
+└── env.example
 ```
-
-## 🔒 Безопасность
-
-1. **Отключите DEBUG в .env**
-2. **Используйте сильные пароли для БД**
-3. **Ограничьте доступ к вебхуку (IP whitelist)**
-4. **Регулярно обновляйте зависимости**
-
-## 📞 Поддержка
-
-### Диагностика
-
-```bash
-# Полная диагностика
-docker compose ps
-docker compose logs worker | tail -50
-docker compose exec worker python -c "from jobs.sms_receiver import ATSmsReceiver; r=ATSmsReceiver(); r.connect(); print(r.get_modem_info())"
-```
-
-### Часто задаваемые вопросы
-
-**Q: Почему используется pyserial вместо Gammu?**
-A: Gammu имел проблемы с кодировкой кириллицы. Pyserial дает прямой контроль над модемом.
-
-**Q: Как добавить описание для нового алерта?**
-A: Через админку Django (`/admin/alerts/alertdescription/`) или через shell.
-
-**Q: Что если модем не на /dev/ttyUSB0?**
-A: Измените MODEM_PORT в .env и в docker-compose.yml devices.
-
-**Q: Как часто проверяются SMS?**
-A: Каждые 2 минуты (настраивается в `core/celery.py`).
