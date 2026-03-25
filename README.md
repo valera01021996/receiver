@@ -11,7 +11,8 @@
 - Подставляет описание на русском из таблицы `AlertDescription`
 - Создаёт тикет в YouTrack
 - Публикует алерт в канал Mattermost с кнопками **Acknowledge** и **Get Alerts**
-- При нажатии Acknowledge — назначает тикет на пользователя в YouTrack, меняет статус
+- При нажатии Acknowledge — проверяет права, назначает тикет на пользователя в YouTrack, меняет статус тикета на "Open", обновляет пост (зелёный цвет, имя подтвердившего, ссылка на тикет)
+- При нажатии Get Alerts — публикует в thread все алерты по данному хосту за текущий день
 - Каждый час тегает дежурных инженеров в каналах
 
 ## Архитектура
@@ -59,18 +60,25 @@
    - Публикует в Mattermost (канал зависит от поля `project`: `voice` → RUBEJ, `epu` → EPU)
    - Обновляет Event: `status=sent`, сохраняет `post_id` и `issue_id`
 4. **Пользователь** нажимает **Acknowledge** в Mattermost → webhook `POST /hooks/mattermost/action/`:
-   - Проверяет права пользователя (`ALLOWED_ACK_USER_IDS`)
-   - Назначает тикет в YouTrack на пользователя, меняет статус на "Open"
-   - Обновляет пост в Mattermost (цвет → зелёный)
-   - Event: `status=acked`
-5. **Каждый час** задача `tag_engineers_hourly` тегает инженеров в обоих каналах
+   - Получает email пользователя через Mattermost API
+   - Находит пользователя в YouTrack по email
+   - Проверяет права: пользователь должен быть в `ALLOWED_ACK_USER_IDS` **и** входить в команду проекта YouTrack; иначе — ephemeral-сообщение об ошибке
+   - Назначает тикет на пользователя (`Assignee`), меняет статус тикета на "Open"
+   - Обновляет пост в Mattermost: цвет → зелёный, добавляет строку **Acknowledged by @username**, добавляет поле со ссылкой на тикет в YouTrack, заменяет кнопки — остаётся только **Get Alerts**
+   - Event: `status=acked`, `acked_by=username`
+5. **Кнопка Get Alerts** → webhook `POST /hooks/mattermost/get_alerts/`:
+   - Ищет все Event-записи по хосту (`instance`) за день события
+   - Публикует результаты в thread исходного поста: количество алертов и детали каждого (alertname, severity, issue_id, acked_by)
+6. **Каждый час** задача `tag_engineers_hourly` тегает инженеров в обоих каналах
 
 ### Статусы Event
 
 ```
 new → sent → acked
-  └→ skipped (невалидный формат)
+  └→ skipped (sms_text короче 50 символов)
 ```
+
+> События с некорректным форматом полей (не 8 частей) остаются в статусе `new` и будут повторно обработаны на следующей итерации.
 
 ## Формат sms_text
 
