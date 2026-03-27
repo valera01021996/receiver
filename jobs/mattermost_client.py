@@ -1,15 +1,18 @@
 import requests
 from typing import Dict, Optional, Any
-
+from core import settings
+import re
+from datetime import datetime
 
 class MattermostClient:
-    def __init__(self, base_url: str, bot_token: str):
-        self.base_url = base_url.rstrip("/")
+    def __init__(self):
+        self.base_url = settings.MATTERMOST_URL
         self.session = requests.Session()
         self.session.headers.update({
-            "Authorization": f"Bearer {bot_token}",
+            "Authorization": f"Bearer {settings.MATTERMOST_TOKEN}",
             "Content-Type": "application/json",
         })
+        # self.mention_users = settings.MENTION_USERS
 
     def post_alert(self,
                    channel_id: str,
@@ -20,20 +23,34 @@ class MattermostClient:
                    summary: str,
                    starts_at: str,
                    severity: str,
+                   service: str,
+                   created_at: str,
                    ack_url: Optional[str] = None,
-                   title: str = "mattermost-alertmanager"
+                    get_alerts_url: Optional[str] = None,
+                   title: str = "mattermost-alertmanager",
+                   mention_users: Optional[str] = None
                    ) -> Dict[str, Any]:
         status_norm = status.strip().lower()
         color = "#e53935" if status_norm == "firing" else "#ff9800"
         status_value = "🔥 FIRING" if status_norm == "firing" else status.upper()
 
         fields = [
-            {"title": "Status", "value": status_value, "short": True},
-            {"title": "severity", "value": severity, "short": True},
-            {"title": "alertname", "value": alertname, "short": True},
-            {"title": "instance", "value": instance, "short": True},
-            {"title": "summary", "value": summary, "short": False},
-            {"title": "Starts At", "value": starts_at, "short": True},
+            # {"title": "Status", "value": status_value, "short": True},
+            # {"title": "Severity", "value": severity, "short": True},
+            # {"title": "Alertname", "value": alertname, "short": True},
+            # {"title": "Instance", "value": instance, "short": True},
+            # {"title": "Affected services", "value": service, "short": True},
+            # {"title": "Summary", "value": summary, "short": True},
+            # {"title": "Starts At", "value": starts_at, "short": True},
+            # {"title": "Created At", "value": created_at.strftime("%Y-%m-%d %H:%M:%S"), "short": True},
+            {"value": f"**Status:** {status_value}", "short": True},
+            {"value": f"**Severity:** {severity}", "short": True},
+            {"value": f"**Alertname:** {alertname}", "short": True},
+            {"value": f"**Instance:** {instance}", "short": True},
+            {"value": f"**Affected services:** {service}", "short": True},
+            {"value": f"**Starts At:** {starts_at}", "short": True},
+            {"value": f"**Summary:** {summary}", "short": True},
+            {"value": f"**Created At:** {created_at.strftime('%Y-%m-%d %H:%M:%S')}", "short": True},
         ]
 
         attachment: Dict[str, Any] = {
@@ -58,9 +75,24 @@ class MattermostClient:
                             "severity": severity,
                             "summary": summary,
                             "starts_at": starts_at,
+                            "service": service,
+                        }
+                    }
+                },
+                {
+                    "name": "Get alerts",
+                    "type": "button",
+                    "style": "primary",
+                    "integration": {
+                        "url": get_alerts_url,
+                        "context": {
+                            "action": "get_alerts",
+                            "instance": instance,
+                            "created_at": datetime.strftime(created_at, '%Y-%m-%d %H:%M:%S'),
                         }
                     }
                 }
+                
             ]
 
         body = {
@@ -70,7 +102,35 @@ class MattermostClient:
                 "attachments": [attachment]
             },
         }
-        return self._post("/api/v4/posts", json=body)
+
+        parent_post = self._post("/api/v4/posts", json=body)
+        users_to_mention = mention_users or settings.MENTION_USERS
+
+        if parent_post and users_to_mention:
+            users = [u.lstrip('@') for u in re.split(r'[,\s]+', users_to_mention.strip()) if u]
+            if users:
+                mention_text = " ".join(f"@{u}" for u in users)
+                self._post("/api/v4/posts", json={
+                    "channel_id": channel_id,
+                    "root_id": parent_post.get("id"),
+                    "message": f"{mention_text} 🔔 Пожалуйста, посмотрите алерт",
+                })
+
+        return parent_post
+
+
+    def post_ephemeral(self, user_id: str, channel_id: str, message: str):
+        url = f"{self.base_url}/api/v4/posts/ephemeral"
+        payload = {
+            "user_id": user_id,
+            "post": {
+                "channel_id": channel_id,
+                "message": message,
+            }
+        }
+        r = self.session.post(url, json=payload, timeout=15)
+        r.raise_for_status()
+        return r.json()
 
     def _post(self, path: str, **kwargs) -> Dict[str, Any]:
         r = self.session.post(self.base_url + path, **kwargs, timeout=15)

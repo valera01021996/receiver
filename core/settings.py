@@ -12,28 +12,31 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
-from datetime import timedelta
+
 
 TIME_ZONE = 'Asia/Tashkent'
 USE_TZ = True
 
-CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://127.0.0.1:6379/1')
-CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://127.0.0.1:6379/2')
-CELERY_TIMEZONE = TIME_ZONE
-CELERY_ENABLE_UTC = True
 
 MATTERMOST_URL = os.getenv('MATTERMOST_URL', '')
 MATTERMOST_TOKEN = os.getenv('MATTERMOST_TOKEN', '')
-CHANNEL_ID = os.getenv('CHANNEL_ID', '')
+CHANNEL_ID_RUBEJ = os.getenv('CHANNEL_ID_RUBEJ', '')
+CHANNEL_ID_EPU = os.getenv('CHANNEL_ID_EPU', '')
 
 YOUTRACK_URL = os.getenv('YOUTRACK_URL', '').rstrip('/')
 YOUTRACK_TOKEN = os.getenv('YOUTRACK_TOKEN', '')
 YOUTRACK_PROJECT = os.getenv('YOUTRACK_PROJECT', '')
 ALLOWED_NUMBER = os.getenv('ALLOWED_NUMBER')
 ACK_URL = os.getenv('ACK_URL')
-
+GET_ALERTS_URL = os.getenv('GET_ALERTS_URL')
+ALLOWED_ACK_USER_IDS = os.getenv('ALLOWED_ACK_USER_IDS')
+GAMMU_SENT  = os.getenv("GAMMU_SENT",  "/var/spool/gammu/sent")
 SMS_PROCESS_DELAY = os.getenv("SMS_PROCESS_DELAY")
-
+MENTION_USERS_RUBEJ = os.getenv("MENTION_USERS_RUBEJ")
+MENTION_USERS_EPU = os.getenv("MENTION_USERS_EPU")
+# Fallback для других проектов
+MENTION_USERS = os.getenv("MENTION_USERS")
+GAMMU_INBOX = os.getenv("GAMMU_INBOX", "/var/spool/gammu/inbox")
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -95,13 +98,13 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'djdb',
-        'USER': 'djuser',
-        'PASSWORD': '123456',
-        'HOST': 'localhost',
-        'PORT': '5432',
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("POSTGRES_DB", "appdb"),
+        "USER": os.getenv("POSTGRES_USER", "appuser"),
+        "PASSWORD": os.getenv("POSTGRES_PASSWORD", "strongpass"),
+        "HOST": os.getenv("POSTGRES_HOST", "postgres"),
+        "PORT": os.getenv("POSTGRES_PORT", "5432"),
     }
 }
 
@@ -123,30 +126,66 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-CELERY_BEAT_SCHEDULE = {
-    "run-task-a-every-minute": {
-        "task": "jobs.dispatch_incoming_sms",
-        "schedule": timedelta(minutes=1),
-    },
+
+# CACHES = {
+#     "default": {
+#         "BACKEND": "django_redis.cache.RedisCache",
+#         "LOCATION": "redis://127.0.0.1:6379/3",
+#         "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
+#         "KEY_PREFIX": "django_api",
+#     }
+# }
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": os.getenv("REDIS_URL", "redis://redis:6379/1"),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        },
+    }
 }
+
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
-USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = "/static"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Настройка логирования
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'jobs': {
+            'handlers': ['console'],
+            'level': 'DEBUG',  # DEBUG уровень для jobs
+            'propagate': False,  # Не передавать логи в родительский логгер (избегаем дублирования)
+        },
+    },
+}
